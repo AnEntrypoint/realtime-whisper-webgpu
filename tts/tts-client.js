@@ -252,9 +252,9 @@ async function generate(text, voiceName) {
     let flowState = {};
 
     for (const stateName of stateInputNames) {
-        // State shape: [1, 2, 1, 1000, 16] (5D tensor for transformer state)
-        // Total elements: 1 * 2 * 1 * 1000 * 16 = 32000
-        const stateShape = [1, 2, 1, 1000, 16];
+        // State shape: [2, 1, 1000, 16, 64] (5D tensor for transformer state)
+        // Total elements: 2 * 1 * 1000 * 16 * 64 = 2048000
+        const stateShape = [2, 1, 1000, 16, 64];
         const stateSize = stateShape.reduce((a, b) => a * b, 1);
         flowState[stateName] = new ort.Tensor('float32', new Float32Array(stateSize).fill(0), stateShape);
         console.log('Initialized ' + stateName + ' with shape ' + JSON.stringify(stateShape));
