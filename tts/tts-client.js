@@ -166,27 +166,35 @@ async function loadModels() {
     };
     
     // Load voices
-    const voiceResp = await fetch(MODELS.voices);
-    const voiceBuf = await voiceResp.arrayBuffer();
-    const view = new DataView(voiceBuf);
-    let off = 0;
-    const numVoices = view.getUint32(off, true); off += 4;
-    
-    const voices = [];
-    for (let i = 0; i < numVoices; i++) {
-        const nameBytes = new Uint8Array(voiceBuf, off, 32);
-        const nameEnd = nameBytes.indexOf(0);
-        const name = new TextDecoder().decode(nameBytes.subarray(0, nameEnd > 0 ? nameEnd : 32)).trim();
-        off += 32;
-        const numFrames = view.getUint32(off, true); off += 4;
-        const embDim = view.getUint32(off, true); off += 4;
-        const embSize = numFrames * embDim;
-        const embeddings = new Float32Array(voiceBuf, off, embSize); off += embSize * 4;
-        predefinedVoices[name] = { data: new Float32Array(embeddings), shape: [1, numFrames, embDim] };
-        voices.push(name);
+    let voices = [];
+    let defaultVoice = 'default';
+    try {
+        const voiceResp = await fetch(MODELS.voices);
+        if (!voiceResp.ok) throw new Error(\`voices.bin not found: \${voiceResp.status}\`);
+        const voiceBuf = await voiceResp.arrayBuffer();
+        const view = new DataView(voiceBuf);
+        let off = 0;
+        const numVoices = view.getUint32(off, true); off += 4;
+
+        for (let i = 0; i < numVoices; i++) {
+            const nameBytes = new Uint8Array(voiceBuf, off, 32);
+            const nameEnd = nameBytes.indexOf(0);
+            const name = new TextDecoder().decode(nameBytes.subarray(0, nameEnd > 0 ? nameEnd : 32)).trim();
+            off += 32;
+            const numFrames = view.getUint32(off, true); off += 4;
+            const embDim = view.getUint32(off, true); off += 4;
+            const embSize = numFrames * embDim;
+            const embeddings = new Float32Array(voiceBuf, off, embSize); off += embSize * 4;
+            predefinedVoices[name] = { data: new Float32Array(embeddings), shape: [1, numFrames, embDim] };
+            voices.push(name);
+        }
+        defaultVoice = voices.includes('cosette') ? 'cosette' : voices[0];
+    } catch (err) {
+        console.warn('voices.bin not available:', err.message);
+        predefinedVoices['default'] = { data: new Float32Array(1 * 32 * 1024).fill(0.1), shape: [1, 32, 1024] };
+        voices = ['default'];
+        defaultVoice = 'default';
     }
-    
-    const defaultVoice = voices.includes('cosette') ? 'cosette' : voices[0];
     currentVoiceEmbedding = predefinedVoices[defaultVoice];
     
     // Pre-allocate tensors
