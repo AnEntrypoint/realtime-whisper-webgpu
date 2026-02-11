@@ -265,7 +265,7 @@ async function generate(text, voiceName) {
             const idx = outputName.replace('out_state_', '');
             const stateName = 'state_' + idx;
             flowState[stateName] = result[outputName];
-            console.log(`Extracted ${outputName} -> ${stateName}`);
+            console.log('Extracted ' + outputName + ' -> ' + stateName);
         }
     }
     console.log('flowState after first run:', Object.keys(flowState), 'size:', Object.keys(flowState).length);
@@ -294,7 +294,7 @@ async function generate(text, voiceName) {
             const idx = outputName.replace('out_state_', '');
             const stateName = 'state_' + idx;
             flowState[stateName] = result[outputName];
-            console.log(`Updated ${outputName} -> ${stateName}`);
+            console.log('Updated ' + outputName + ' -> ' + stateName);
         }
     }
     console.log('flowState after second run:', Object.keys(flowState), 'size:', Object.keys(flowState).length);
