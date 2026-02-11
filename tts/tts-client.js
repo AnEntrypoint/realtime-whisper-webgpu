@@ -240,9 +240,9 @@ function buildStateShapeMap(session, stateInputNames) {
         'state_16': [1], 'state_17': [1]
     };
 
-    // state_2 and state_5 require int64 dtype - discovered through systematic testing
-    // state_5 is often paired with state_2 in sequence models
-    const int64States = new Set(['state_2', 'state_5']);
+    // state_2, state_5, state_8, state_11, state_14, state_17 require int64 dtype
+    // Pattern: every 3rd state starting from 2 requires int64 (discovered through systematic testing)
+    const int64States = new Set(['state_2', 'state_5', 'state_8', 'state_11', 'state_14', 'state_17']);
 
     // Try to get shapes from session metadata if available
     for (const stateName of stateInputNames) {
