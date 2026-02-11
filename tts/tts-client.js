@@ -229,7 +229,7 @@ function buildStateShapeMap(session, stateInputNames) {
         'state_1': [0],                   // Rank 1, size 0 (empty)
         'state_2': [1],                   // Rank 1, size 1, int64 dtype
         'state_3': [2, 1, 1000, 16, 64],  // Rank 5 transformer state
-        'state_4': [0], 'state_5': [0],   // Rank 1, size 0 (empty vectors)
+        'state_4': [0], 'state_5': [1],   // state_4: rank 1 size 0; state_5: rank 1 size 1
         'state_6': [1], 'state_7': [1], 'state_8': [1], 'state_9': [1],
         'state_10': [1], 'state_11': [1], 'state_12': [1], 'state_13': [1],
         'state_14': [1], 'state_15': [1], 'state_16': [1], 'state_17': [1]
