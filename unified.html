@@ -275,7 +275,7 @@
 
             <div class="section">
                 <div class="section-title">Text Input</div>
-                <textarea id="tts-input" placeholder="Enter text to synthesize... (TTS models not available)"></textarea>
+                <textarea id="tts-input" placeholder="Enter text to synthesize..." disabled></textarea>
                 <div class="controls">
                     <button id="generate-btn" disabled>Generate Speech</button>
                     <button id="stop-tts-btn" class="danger" disabled>Stop</button>
@@ -299,11 +299,13 @@
     <script type="module">
         // Simple Whisper STT implementation using transformers.js
         import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.13.0';
+        import { PocketTTSClient } from '/tts/tts-client.js';
 
         let recorder = null;
         let audioContext = null;
         let transcriber = null;
         let isRecording = false;
+        let ttsClient = null;
 
         async function initializeSTT() {
             try {
@@ -456,8 +458,66 @@
             }
         };
 
+        // TTS Functions
+        async function initializeTTS() {
+            try {
+                ttsClient = new PocketTTSClient({
+                    onStatus: (status, state) => {
+                        const statusEl = document.getElementById('tts-status');
+                        statusEl.textContent = status;
+                        statusEl.className = 'status ' + (state || 'ready');
+                    },
+                    onReady: () => {
+                        document.getElementById('generate-btn').disabled = false;
+                        document.getElementById('tts-input').disabled = false;
+                        document.getElementById('tts-input').placeholder = 'Enter text to synthesize...';
+                        document.getElementById('tts-status').textContent = 'Ready';
+                        document.getElementById('tts-status').className = 'status ready';
+                    },
+                    onComplete: (audioUrl) => {
+                        if (audioUrl) {
+                            document.getElementById('tts-audio').src = audioUrl;
+                            document.getElementById('audio-output-section').classList.remove('hidden');
+                        }
+                        document.getElementById('generate-btn').disabled = false;
+                        document.getElementById('stop-tts-btn').disabled = true;
+                    }
+                });
+            } catch (err) {
+                console.error('TTS initialization failed:', err);
+                document.getElementById('tts-status').textContent = 'TTS unavailable: ' + err.message;
+                document.getElementById('tts-status').className = 'status error';
+            }
+        }
+
+        document.getElementById('generate-btn').addEventListener('click', async () => {
+            const text = document.getElementById('tts-input').value.trim();
+            if (!text) {
+                alert('Please enter text to synthesize');
+                return;
+            }
+            if (ttsClient && ttsClient.generate) {
+                document.getElementById('generate-btn').disabled = true;
+                document.getElementById('stop-tts-btn').disabled = false;
+                try {
+                    await ttsClient.generate(text);
+                } catch (err) {
+                    console.error('TTS generation failed:', err);
+                    document.getElementById('tts-status').textContent = 'Error: ' + err.message;
+                }
+            }
+        });
+
+        document.getElementById('stop-tts-btn').addEventListener('click', () => {
+            if (ttsClient && ttsClient.stop) {
+                ttsClient.stop();
+                document.getElementById('stop-tts-btn').disabled = true;
+            }
+        });
+
         // Initialize
         initializeSTT();
+        initializeTTS();
     </script>
 </body>
 </html>

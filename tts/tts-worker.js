@@ -66,36 +66,37 @@ self.onmessage = async (e) => {
 
 async function loadModels() {
     self.postMessage({ type: 'status', data: { status: 'Loading ONNX Runtime...', state: 'loading' } });
-    
-    // Load ONNX Runtime
-    const ortModule = await import(`${ORT_CDN}ort.min.mjs`);
-    ort = ortModule.default || ortModule;
-    
-    ort.env.wasm.wasmPaths = ORT_CDN;
-    ort.env.wasm.simd = true;
-    
-    if (!self.crossOriginIsolated) {
-        console.warn('[TTS Worker] Not cross-origin isolated, using single thread');
-        ort.env.wasm.numThreads = 1;
-    } else {
-        ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
-    }
-    
-    self.postMessage({ type: 'status', data: { status: 'Loading TTS models...', state: 'loading', progress: 'This may take a moment (140MB total)' } });
-    
-    const sessionOptions = {
-        executionProviders: ['wasm'],
-        graphOptimizationLevel: 'all'
-    };
-    
-    // Load all models in parallel
-    const [encoder, textCond, flowMain, flowFlow, decoder] = await Promise.all([
-        ort.InferenceSession.create(MODELS.mimi_encoder, sessionOptions),
-        ort.InferenceSession.create(MODELS.text_conditioner, sessionOptions),
-        ort.InferenceSession.create(MODELS.flow_lm_main, sessionOptions),
-        ort.InferenceSession.create(MODELS.flow_lm_flow, sessionOptions),
-        ort.InferenceSession.create(MODELS.mimi_decoder, sessionOptions)
-    ]);
+
+    try {
+        // Load ONNX Runtime
+        const ortModule = await import(`${ORT_CDN}ort.min.mjs`);
+        ort = ortModule.default || ortModule;
+
+        ort.env.wasm.wasmPaths = ORT_CDN;
+        ort.env.wasm.simd = true;
+
+        if (!self.crossOriginIsolated) {
+            console.warn('[TTS Worker] Not cross-origin isolated, using single thread');
+            ort.env.wasm.numThreads = 1;
+        } else {
+            ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
+        }
+
+        self.postMessage({ type: 'status', data: { status: 'Loading TTS models...', state: 'loading', progress: 'This may take a moment (140MB total)' } });
+
+        const sessionOptions = {
+            executionProviders: ['wasm'],
+            graphOptimizationLevel: 'all'
+        };
+
+        // Load all models in parallel with error handling
+        const [encoder, textCond, flowMain, flowFlow, decoder] = await Promise.all([
+            ort.InferenceSession.create(MODELS.mimi_encoder, sessionOptions).catch(e => { throw new Error(`Failed to load mimi_encoder: ${e.message}`); }),
+            ort.InferenceSession.create(MODELS.text_conditioner, sessionOptions).catch(e => { throw new Error(`Failed to load text_conditioner: ${e.message}`); }),
+            ort.InferenceSession.create(MODELS.flow_lm_main, sessionOptions).catch(e => { throw new Error(`Failed to load flow_lm_main: ${e.message}`); }),
+            ort.InferenceSession.create(MODELS.flow_lm_flow, sessionOptions).catch(e => { throw new Error(`Failed to load flow_lm_flow: ${e.message}`); }),
+            ort.InferenceSession.create(MODELS.mimi_decoder, sessionOptions).catch(e => { throw new Error(`Failed to load mimi_decoder: ${e.message}`); })
+        ]);
     
     sessions = {
         mimiEncoder: encoder,
@@ -144,16 +145,22 @@ async function loadModels() {
         }
     }
     
-    isReady = true;
-    
-    self.postMessage({
-        type: 'voices_loaded',
-        voices: voiceNames,
-        defaultVoice: defaultVoice
-    });
-    
-    self.postMessage({ type: 'loaded' });
-    self.postMessage({ type: 'status', data: { status: 'Ready', state: 'ready' } });
+        isReady = true;
+
+        self.postMessage({
+            type: 'voices_loaded',
+            voices: voiceNames,
+            defaultVoice: defaultVoice
+        });
+
+        self.postMessage({ type: 'loaded' });
+        self.postMessage({ type: 'status', data: { status: 'Ready', state: 'ready' } });
+    } catch (err) {
+        console.error('[TTS Worker] Model loading failed:', err);
+        isReady = false;
+        self.postMessage({ type: 'status', data: { status: 'TTS models not available: ' + err.message, state: 'error' } });
+        self.postMessage({ type: 'error', error: err.message });
+    }
 }
 
 function parseVoicesBin(buffer) {
