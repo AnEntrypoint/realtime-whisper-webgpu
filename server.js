@@ -23,7 +23,10 @@ const MIME_TYPES = {
   '.ttf': 'font/ttf',
   '.eot': 'application/vnd.ms-fontobject',
   '.otf': 'font/otf',
-  '.onnx': 'application/octet-stream'
+  '.onnx': 'application/octet-stream',
+  '.wasm': 'application/wasm',
+  '.bin': 'application/octet-stream',
+  '.model': 'application/octet-stream'
 };
 
 const server = http.createServer((req, res) => {
@@ -32,10 +35,12 @@ const server = http.createServer((req, res) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
 
-  // CORS for local development
+  // CORS and isolation headers for SharedArrayBuffer (ONNX multi-threading)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(200);

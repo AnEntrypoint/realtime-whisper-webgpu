@@ -338,7 +338,7 @@
                 </div>
             </div>
 
-            <div id="whisper-root" style="display: none;"></div>
+            <div id="root" style="display: none;"></div>
         </div>
 
         <!-- Pocket TTS Panel -->
@@ -395,20 +395,123 @@
         </div>
     </div>
 
-    <!-- Load original Whisper app -->
-    <script type="module" crossorigin src="/assets/index-ClpvH5Vn.js"></script>
-
-    <!-- TTS Integration -->
     <script type="module">
         import { PocketTTSClient } from './tts/tts-client.js';
 
-        // Initialize TTS with error handling
+        // === STT via existing Whisper worker ===
+        let sttWorker = null;
+        let sttReady = false;
+        let recorder = null;
+
+        async function initSTT() {
+            const status = document.getElementById('stt-status');
+            status.textContent = 'Loading Whisper...';
+            status.className = 'status loading';
+            try {
+                sttWorker = new Worker('/assets/worker-BPxxCWVT.js');
+                sttWorker.onmessage = (e) => {
+                    const msg = e.data;
+                    switch (msg.status) {
+                        case 'loading':
+                            status.textContent = typeof msg.data === 'string' ? msg.data : 'Loading...';
+                            status.className = 'status loading';
+                            break;
+                        case 'ready':
+                            sttReady = true;
+                            status.textContent = 'Ready';
+                            status.className = 'status ready';
+                            document.getElementById('loading-screen').classList.add('hidden');
+                            break;
+                        case 'start':
+                            status.textContent = 'Transcribing...';
+                            status.className = 'status loading';
+                            break;
+                        case 'update':
+                            if (msg.output) {
+                                const text = Array.isArray(msg.output) ? msg.output.map(o => o.text || o).join('') : (msg.output.text || String(msg.output));
+                                document.getElementById('transcription-output').textContent = text;
+                            }
+                            break;
+                        case 'complete':
+                            if (msg.output) {
+                                const text = Array.isArray(msg.output) ? msg.output.map(o => o.text || o).join('') : (msg.output.text || String(msg.output));
+                                document.getElementById('transcription-output').textContent = text;
+                            }
+                            status.textContent = 'Ready';
+                            status.className = 'status ready';
+                            break;
+                    }
+                };
+                sttWorker.postMessage({ type: 'load' });
+            } catch (err) {
+                console.error('STT init failed:', err);
+                status.textContent = 'STT error: ' + err.message;
+                status.className = 'status error';
+                document.getElementById('loading-screen').classList.add('hidden');
+            }
+        }
+
+        async function processAudio(blob) {
+            if (!sttWorker || !sttReady) return;
+            const status = document.getElementById('stt-status');
+            status.textContent = 'Transcribing...';
+            status.className = 'status loading';
+            try {
+                const arrayBuf = await blob.arrayBuffer();
+                const ctx = new AudioContext({ sampleRate: 16000 });
+                const decoded = await ctx.decodeAudioData(arrayBuf);
+                const audio = decoded.getChannelData(0);
+                ctx.close();
+                sttWorker.postMessage({ type: 'generate', data: { audio, language: 'en' } });
+            } catch (err) {
+                console.error('Transcription error:', err);
+                status.textContent = 'Error: ' + err.message;
+                status.className = 'status error';
+            }
+        }
+
+        window.startRecording = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const chunks = [];
+            recorder = new MediaRecorder(stream);
+            recorder.ondataavailable = e => chunks.push(e.data);
+            recorder.onstop = () => {
+                stream.getTracks().forEach(t => t.stop());
+                processAudio(new Blob(chunks, { type: 'audio/webm' }));
+            };
+            recorder.start();
+            document.getElementById('record-btn').disabled = true;
+            document.getElementById('stop-record-btn').disabled = false;
+            document.getElementById('stt-status').textContent = 'Recording...';
+            document.getElementById('stt-status').className = 'status recording';
+        };
+
+        window.stopRecording = () => {
+            if (recorder && recorder.state !== 'inactive') recorder.stop();
+            document.getElementById('record-btn').disabled = false;
+            document.getElementById('stop-record-btn').disabled = true;
+        };
+
+        window.handleAudioUpload = (e) => {
+            const file = e.target.files[0];
+            if (file) processAudio(file);
+        };
+
+        window.copyTranscription = () => {
+            navigator.clipboard.writeText(document.getElementById('transcription-output').textContent);
+        };
+
+        window.clearTranscription = () => {
+            document.getElementById('transcription-output').textContent = '';
+        };
+
+        // === TTS ===
         try {
             window.ttsClient = new PocketTTSClient({
                 onStatus: (status, state) => {
                     const el = document.getElementById('tts-status');
                     el.textContent = status;
-                    el.className = 'status ' + state;
+                    el.className = 'status ' + (state || 'ready');
                 },
                 onVoicesLoaded: (voices, defaultVoice) => {
                     const select = document.getElementById('voice-select');
@@ -434,137 +537,48 @@
                     if (metrics.ttfb) document.getElementById('ttfb').textContent = Math.round(metrics.ttfb);
                 },
                 onComplete: (audioUrl) => {
-                    document.getElementById('tts-audio').src = audioUrl;
+                    if (audioUrl) document.getElementById('tts-audio').src = audioUrl;
                     document.getElementById('generate-btn').disabled = false;
                     document.getElementById('stop-tts-btn').disabled = true;
                 },
                 onReady: () => {
                     document.getElementById('generate-btn').disabled = false;
-                    checkAllLoaded();
                 }
             });
         } catch (err) {
-            console.error('TTS initialization failed:', err);
-            document.getElementById('tts-status').textContent = 'TTS unavailable: ' + err.message;
+            console.error('TTS init failed:', err);
+            document.getElementById('tts-status').textContent = 'TTS error: ' + err.message;
             document.getElementById('tts-status').className = 'status error';
-            ttsLoaded = true; // Still mark as ready to not block UI
-            checkAllLoaded();
         }
-        
-        // Global functions for UI
+
         window.generateSpeech = () => {
             const text = document.getElementById('tts-input').value.trim();
             if (!text) return;
-            
             document.getElementById('generate-btn').disabled = true;
             document.getElementById('stop-tts-btn').disabled = false;
             document.getElementById('tts-metrics').style.display = 'none';
-            
-            const voice = document.getElementById('voice-select').value;
-            window.ttsClient.generate(text, voice);
+            window.ttsClient.generate(text, document.getElementById('voice-select').value);
         };
-        
+
         window.stopTTS = () => {
-            window.ttsClient.stop();
+            window.ttsClient?.stop();
             document.getElementById('generate-btn').disabled = false;
             document.getElementById('stop-tts-btn').disabled = true;
         };
-        
+
         window.handleVoiceUpload = (e) => {
             const file = e.target.files[0];
-            if (file) window.ttsClient.uploadVoice(file);
+            if (file) window.ttsClient?.uploadVoice(file);
         };
-        
+
         window.useTranscription = () => {
-            const transcription = document.getElementById('transcription-output').textContent;
-            if (transcription && transcription !== 'Transcribed text will appear here...') {
-                document.getElementById('tts-input').value = transcription;
-            }
+            const t = document.getElementById('transcription-output').textContent;
+            if (t) document.getElementById('tts-input').value = t;
         };
-        
-        window.downloadAudio = () => {
-            window.ttsClient.downloadAudio();
-        };
-        
-        // Check loading status
-        let whisperLoaded = false;
-        let ttsLoaded = false;
-        
-        function checkAllLoaded() {
-            ttsLoaded = true;
-            if (whisperLoaded) {
-                document.getElementById('loading-screen').classList.add('hidden');
-            }
-        }
-        
-        // Listen for Whisper loading
-        window.addEventListener('whisper-loaded', () => {
-            whisperLoaded = true;
-            if (ttsLoaded) {
-                document.getElementById('loading-screen').classList.add('hidden');
-            }
-        });
-        
-        // Timeout fallback
-        setTimeout(() => {
-            document.getElementById('loading-screen').classList.add('hidden');
-        }, 10000);
-    </script>
-    
-    <!-- STT Integration Script -->
-    <script>
-        // These functions will be called by the Whisper app once loaded
-        window.startRecording = () => {
-            document.getElementById('record-btn').disabled = true;
-            document.getElementById('stop-record-btn').disabled = false;
-            const status = document.getElementById('stt-status');
-            status.textContent = 'Recording...';
-            status.className = 'status recording';
-            
-            // Dispatch event for Whisper app
-            window.dispatchEvent(new CustomEvent('whisper-start-record'));
-        };
-        
-        window.stopRecording = () => {
-            document.getElementById('record-btn').disabled = false;
-            document.getElementById('stop-record-btn').disabled = true;
-            const status = document.getElementById('stt-status');
-            status.textContent = 'Processing...';
-            status.className = 'status loading';
-            
-            window.dispatchEvent(new CustomEvent('whisper-stop-record'));
-        };
-        
-        window.handleAudioUpload = (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            
-            const status = document.getElementById('stt-status');
-            status.textContent = 'Processing audio...';
-            status.className = 'status loading';
-            
-            window.dispatchEvent(new CustomEvent('whisper-upload', { detail: file }));
-        };
-        
-        window.setTranscription = (text) => {
-            const output = document.getElementById('transcription-output');
-            output.textContent = text;
-            output.classList.add('has-content');
-            const status = document.getElementById('stt-status');
-            status.textContent = 'Ready';
-            status.className = 'status ready';
-        };
-        
-        window.copyTranscription = () => {
-            const text = document.getElementById('transcription-output').textContent;
-            navigator.clipboard.writeText(text);
-        };
-        
-        window.clearTranscription = () => {
-            const output = document.getElementById('transcription-output');
-            output.textContent = '';
-            output.classList.remove('has-content');
-        };
+
+        window.downloadAudio = () => window.ttsClient?.downloadAudio();
+
+        initSTT();
     </script>
 </body>
 </html>
