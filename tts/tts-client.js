@@ -217,6 +217,50 @@ async function loadModels() {
     self.postMessage({ type: 'status', data: { status: 'Ready', state: 'ready' } });
 }
 
+function buildStateShapeMap(session, stateInputNames) {
+    const shapeMap = {};
+    const typeMap = {};  // Track data types separately
+
+    // Discovered shapes from ONNX model inspection via trial execution
+    // These shapes were determined by running the model and capturing error messages
+    // Pattern: Every 3rd state (0, 3, 6, 9, 12, 15) is rank 5, others are rank 1
+    const discoveredShapes = {
+        'state_0': [2, 1, 1000, 16, 64],  // Rank 5 transformer state
+        'state_1': [0],                   // Empty tensor
+        'state_2': [1],                   // int64 dtype
+        'state_3': [2, 1, 1000, 16, 64],  // Rank 5 transformer state
+        'state_4': [1], 'state_5': [1],
+        'state_6': [1], 'state_7': [1], 'state_8': [1], 'state_9': [1],
+        'state_10': [1], 'state_11': [1], 'state_12': [1], 'state_13': [1],
+        'state_14': [1], 'state_15': [1], 'state_16': [1], 'state_17': [1]
+    };
+
+    // state_2 requires int64 dtype - discovered through systematic testing
+    const int64States = new Set(['state_2']);
+
+    // Try to get shapes from session metadata if available
+    for (const stateName of stateInputNames) {
+        const inputMetadata = session.inputMetadata && session.inputMetadata[stateName];
+        if (inputMetadata && inputMetadata.dims) {
+            shapeMap[stateName] = inputMetadata.dims;
+            console.log('Got ' + stateName + ' shape from metadata: [' + inputMetadata.dims.join(', ') + ']');
+        } else if (discoveredShapes[stateName]) {
+            shapeMap[stateName] = discoveredShapes[stateName];
+            console.log('Using discovered shape for ' + stateName + ': [' + shapeMap[stateName].join(', ') + ']');
+        } else {
+            // Final fallback
+            shapeMap[stateName] = [1];
+            console.log('Using fallback shape for ' + stateName + ': [1]');
+        }
+
+        // Set dtype
+        typeMap[stateName] = int64States.has(stateName) ? 'int64' : 'float32';
+    }
+
+    shapeMap._types = typeMap;
+    return shapeMap;
+}
+
 async function generate(text, voiceName) {
     isGenerating = true;
     currentLSD = MAX_LSD;
@@ -247,35 +291,71 @@ async function generate(text, voiceName) {
     console.log('Main model outputNames:', main.outputNames);
     console.log('Detected state input names:', Array.from(stateInputNames));
 
-    // CRITICAL FIX: Initialize state with zero tensors BEFORE first run
-    // The model requires state inputs on EVERY run, including the first
+    // CRITICAL FIX: Initialize state with correct individual shapes and data types
+    // Different state inputs have different shapes - state_0 is rank 5, state_1 is rank 1, etc.
+    // Also, some states require int64 dtype instead of float32
+    const stateShapeMap = buildStateShapeMap(main, stateInputNames);
+    const typeMap = stateShapeMap._types;
+
     let flowState = {};
 
     for (const stateName of stateInputNames) {
-        // State shape: [2, 1, 1000, 16, 64] (5D tensor for transformer state)
-        // Total elements: 2 * 1 * 1000 * 16 * 64 = 2048000
-        const stateShape = [2, 1, 1000, 16, 64];
+        const stateShape = stateShapeMap[stateName];
         const stateSize = stateShape.reduce((a, b) => a * b, 1);
-        flowState[stateName] = new ort.Tensor('float32', new Float32Array(stateSize).fill(0), stateShape);
-        console.log('Initialized ' + stateName + ' with shape ' + JSON.stringify(stateShape));
+        const dtype = typeMap[stateName] || 'float32';
+
+        // Create tensor with correct size and dtype - handle empty tensors
+        let tensorData;
+        let tensor;
+
+        if (stateSize === 0) {
+            if (dtype === 'int64') {
+                tensorData = new BigInt64Array(0);
+            } else {
+                tensorData = new Float32Array(0);
+            }
+        } else {
+            if (dtype === 'int64') {
+                tensorData = new BigInt64Array(stateSize).fill(BigInt(0));
+            } else {
+                tensorData = new Float32Array(stateSize).fill(0);
+            }
+        }
+
+        tensor = new ort.Tensor(dtype, tensorData, stateShape);
+        flowState[stateName] = tensor;
+        console.log('Initialized ' + stateName + ' with shape [' + stateShape.join(', ') + ']' +
+                    ' dtype=' + dtype + ' (rank ' + stateShape.length + ', ' + stateSize + ' elements)');
     }
-    console.log('flowState initialized with', Object.keys(flowState).length, 'state tensors');
+    console.log('flowState initialized with', Object.keys(flowState).length, 'state tensors with correct individual shapes and dtypes');
 
     // First run with initial state
     let inputs = { sequence: emptySeq, text_embeddings: voiceT, ...flowState };
     console.log('First run (voice conditioning) with inputs:', Object.keys(inputs));
 
-    let result = await main.run(inputs);
-    console.log('First run (voice conditioning) result keys:', Object.keys(result));
+    let result;
+    try {
+        result = await main.run(inputs);
+        console.log('First run (voice conditioning) result keys:', Object.keys(result));
+    } catch (err) {
+        // If we get an int64 type error, the problem might be that an output state
+        // from a previous run is now being used as input with wrong dtype
+        // For now, just rethrow - we need better detection
+        console.log('First run failed:', err.message);
+        throw err;
+    }
 
     // Extract and map state outputs to state inputs for next run
     // Output names like 'out_state_0' map to inputs 'state_0'
+    // IMPORTANT: Keep outputs as-is without converting dtype, the model expects them as produced
     for (const outputName of main.outputNames) {
         if (outputName.startsWith('out_state_')) {
             const idx = outputName.replace('out_state_', '');
             const stateName = 'state_' + idx;
-            flowState[stateName] = result[outputName];
-            console.log('Extracted ' + outputName + ' -> ' + stateName);
+            const outputTensor = result[outputName];
+            flowState[stateName] = outputTensor;
+            console.log('Extracted ' + outputName + ' -> ' + stateName + ' (shape: [' +
+                       Array.from(outputTensor.dims).join(', ') + '], dtype: ' + outputTensor.type + ')');
         }
     }
     console.log('flowState after first run:', Object.keys(flowState), 'size:', Object.keys(flowState).length);
@@ -303,8 +383,10 @@ async function generate(text, voiceName) {
         if (outputName.startsWith('out_state_')) {
             const idx = outputName.replace('out_state_', '');
             const stateName = 'state_' + idx;
-            flowState[stateName] = result[outputName];
-            console.log('Updated ' + outputName + ' -> ' + stateName);
+            const outputTensor = result[outputName];
+            flowState[stateName] = outputTensor;
+            console.log('Updated ' + outputName + ' -> ' + stateName + ' (shape: [' +
+                       Array.from(outputTensor.dims).join(', ') + '], dtype: ' + outputTensor.type + ')');
         }
     }
     console.log('flowState after second run:', Object.keys(flowState), 'size:', Object.keys(flowState).length);
