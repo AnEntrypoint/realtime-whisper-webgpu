@@ -235,8 +235,9 @@ function buildStateShapeMap(session, stateInputNames) {
         'state_14': [1], 'state_15': [1], 'state_16': [1], 'state_17': [1]
     };
 
-    // state_2 requires int64 dtype - discovered through systematic testing
-    const int64States = new Set(['state_2']);
+    // state_2 and state_5 require int64 dtype - discovered through systematic testing
+    // state_5 is often paired with state_2 in sequence models
+    const int64States = new Set(['state_2', 'state_5']);
 
     // Try to get shapes from session metadata if available
     for (const stateName of stateInputNames) {
@@ -347,15 +348,40 @@ async function generate(text, voiceName) {
 
     // Extract and map state outputs to state inputs for next run
     // Output names like 'out_state_0' map to inputs 'state_0'
-    // IMPORTANT: Keep outputs as-is without converting dtype, the model expects them as produced
+    // CRITICAL: Convert output dtype to match input dtype if needed
+    // If the input requires int64 but output is float32, we must convert
     for (const outputName of main.outputNames) {
         if (outputName.startsWith('out_state_')) {
             const idx = outputName.replace('out_state_', '');
             const stateName = 'state_' + idx;
             const outputTensor = result[outputName];
-            flowState[stateName] = outputTensor;
+            const expectedDtype = typeMap[stateName] || 'float32';
+
+            // Convert dtype if needed
+            let tensor = outputTensor;
+            if (expectedDtype === 'int64' && outputTensor.type === 'float32') {
+                // Convert float32 output to int64 for next iteration
+                const floatData = outputTensor.data;
+                const int64Data = new BigInt64Array(floatData.length);
+                for (let i = 0; i < floatData.length; i++) {
+                    int64Data[i] = BigInt(Math.round(floatData[i]));
+                }
+                tensor = new ort.Tensor('int64', int64Data, Array.from(outputTensor.dims));
+                console.log('Converted ' + outputName + ' from float32 to int64');
+            } else if (expectedDtype === 'float32' && outputTensor.type === 'int64') {
+                // Convert int64 output to float32 for next iteration
+                const int64Data = outputTensor.data;
+                const floatData = new Float32Array(int64Data.length);
+                for (let i = 0; i < int64Data.length; i++) {
+                    floatData[i] = Number(int64Data[i]);
+                }
+                tensor = new ort.Tensor('float32', floatData, Array.from(outputTensor.dims));
+                console.log('Converted ' + outputName + ' from int64 to float32');
+            }
+
+            flowState[stateName] = tensor;
             console.log('Extracted ' + outputName + ' -> ' + stateName + ' (shape: [' +
-                       Array.from(outputTensor.dims).join(', ') + '], dtype: ' + outputTensor.type + ')');
+                       Array.from(tensor.dims).join(', ') + '], dtype: ' + tensor.type + ')');
         }
     }
     console.log('flowState after first run:', Object.keys(flowState), 'size:', Object.keys(flowState).length);
@@ -384,9 +410,33 @@ async function generate(text, voiceName) {
             const idx = outputName.replace('out_state_', '');
             const stateName = 'state_' + idx;
             const outputTensor = result[outputName];
-            flowState[stateName] = outputTensor;
+            const expectedDtype = typeMap[stateName] || 'float32';
+
+            // Convert dtype if needed
+            let tensor = outputTensor;
+            if (expectedDtype === 'int64' && outputTensor.type === 'float32') {
+                // Convert float32 output to int64 for next iteration
+                const floatData = outputTensor.data;
+                const int64Data = new BigInt64Array(floatData.length);
+                for (let i = 0; i < floatData.length; i++) {
+                    int64Data[i] = BigInt(Math.round(floatData[i]));
+                }
+                tensor = new ort.Tensor('int64', int64Data, Array.from(outputTensor.dims));
+                console.log('Converted ' + outputName + ' from float32 to int64');
+            } else if (expectedDtype === 'float32' && outputTensor.type === 'int64') {
+                // Convert int64 output to float32 for next iteration
+                const int64Data = outputTensor.data;
+                const floatData = new Float32Array(int64Data.length);
+                for (let i = 0; i < int64Data.length; i++) {
+                    floatData[i] = Number(int64Data[i]);
+                }
+                tensor = new ort.Tensor('float32', floatData, Array.from(outputTensor.dims));
+                console.log('Converted ' + outputName + ' from int64 to float32');
+            }
+
+            flowState[stateName] = tensor;
             console.log('Updated ' + outputName + ' -> ' + stateName + ' (shape: [' +
-                       Array.from(outputTensor.dims).join(', ') + '], dtype: ' + outputTensor.type + ')');
+                       Array.from(tensor.dims).join(', ') + '], dtype: ' + tensor.type + ')');
         }
     }
     console.log('flowState after second run:', Object.keys(flowState), 'size:', Object.keys(flowState).length);
@@ -445,7 +495,32 @@ async function generate(text, voiceName) {
             if (outputName.startsWith('out_state_')) {
                 const idx = outputName.replace('out_state_', '');
                 const stateName = 'state_' + idx;
-                flowState[stateName] = arResult[outputName];
+                const outputTensor = arResult[outputName];
+                const expectedDtype = typeMap[stateName] || 'float32';
+
+                // Convert dtype if needed
+                let tensor = outputTensor;
+                if (expectedDtype === 'int64' && outputTensor.type === 'float32') {
+                    // Convert float32 output to int64 for next iteration
+                    const floatData = outputTensor.data;
+                    const int64Data = new BigInt64Array(floatData.length);
+                    for (let i = 0; i < floatData.length; i++) {
+                        int64Data[i] = BigInt(Math.round(floatData[i]));
+                    }
+                    tensor = new ort.Tensor('int64', int64Data, Array.from(outputTensor.dims));
+                    console.log('Converted ' + outputName + ' from float32 to int64');
+                } else if (expectedDtype === 'float32' && outputTensor.type === 'int64') {
+                    // Convert int64 output to float32 for next iteration
+                    const int64Data = outputTensor.data;
+                    const floatData = new Float32Array(int64Data.length);
+                    for (let i = 0; i < int64Data.length; i++) {
+                        floatData[i] = Number(int64Data[i]);
+                    }
+                    tensor = new ort.Tensor('float32', floatData, Array.from(outputTensor.dims));
+                    console.log('Converted ' + outputName + ' from int64 to float32');
+                }
+
+                flowState[stateName] = tensor;
                 stateUpdated = true;
             }
         }
