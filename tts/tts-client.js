@@ -223,16 +223,16 @@ function buildStateShapeMap(session, stateInputNames) {
 
     // Discovered shapes from ONNX model inspection via trial execution
     // These shapes were determined by running the model and capturing error messages
-    // Pattern: state_0, state_3 are rank 5; state_1 is empty; state_2, state_4-5 are rank 1; state_6-17 TBD
+    // Pattern: state_0, state_3 are rank 5; state_1, state_4-5 are rank 1 with size 0; state_2 is rank 1; state_6-17 TBD
     const discoveredShapes = {
         'state_0': [2, 1, 1000, 16, 64],  // Rank 5 transformer state
-        'state_1': [0],                   // Empty tensor
-        'state_2': [1],                   // Rank 1, int64 dtype
+        'state_1': [0],                   // Rank 1, size 0 (empty)
+        'state_2': [1],                   // Rank 1, size 1, int64 dtype
         'state_3': [2, 1, 1000, 16, 64],  // Rank 5 transformer state
-        'state_4': [1], 'state_5': [1],     // Rank 1 scalars
-        'state_6': [], 'state_7': [], 'state_8': [], 'state_9': [],
-        'state_10': [], 'state_11': [], 'state_12': [], 'state_13': [],
-        'state_14': [], 'state_15': [], 'state_16': [], 'state_17': []
+        'state_4': [0], 'state_5': [0],   // Rank 1, size 0 (empty vectors)
+        'state_6': [1], 'state_7': [1], 'state_8': [1], 'state_9': [1],
+        'state_10': [1], 'state_11': [1], 'state_12': [1], 'state_13': [1],
+        'state_14': [1], 'state_15': [1], 'state_16': [1], 'state_17': [1]
     };
 
     // state_2 requires int64 dtype - discovered through systematic testing
