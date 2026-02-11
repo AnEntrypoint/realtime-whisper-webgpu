@@ -220,33 +220,58 @@ async function loadModels() {
 async function generate(text, voiceName) {
     isGenerating = true;
     currentLSD = MAX_LSD;
-    
+
     if (voiceName && voiceName !== 'custom' && predefinedVoices[voiceName]) {
         currentVoiceEmbedding = predefinedVoices[voiceName];
     }
-    
+
     const { enc, txt, main, flow, dec } = sessions;
-    
+
     // Preprocess
     const processed = text.trim();
     const tokens = tokenizerProcessor.encodeIds(processed);
-    
+
     // Voice conditioning
     const emptySeq = new ort.Tensor('float32', new Float32Array(0), [1, 0, 32]);
     const voiceT = new ort.Tensor('float32', currentVoiceEmbedding.data, currentVoiceEmbedding.shape);
-    
+
+    // Initialize flowState with zero tensors for all required state inputs
     let flowState = {};
+    for (const inputName of main.inputNames) {
+        if (inputName.startsWith('state_')) {
+            const idx = parseInt(inputName.replace('state_', ''));
+            // Initialize with zero tensor - proper shape will be set after first output
+            flowState[inputName] = new ort.Tensor('float32', new Float32Array(1024), [1, 1, 1024]);
+        }
+    }
+
     let result = await main.run({ sequence: emptySeq, text_embeddings: voiceT, ...flowState });
-    
-    // Text conditioning  
+
+    // Update flowState from voice conditioning
+    for (const outputName of main.outputNames) {
+        if (outputName.startsWith('out_state_')) {
+            const idx = parseInt(outputName.replace('out_state_', ''));
+            flowState[`state_${idx}`] = result[outputName];
+        }
+    }
+
+    // Text conditioning
     const txtInput = new ort.Tensor('int64', BigInt64Array.from(tokens.map(x => BigInt(x))), [1, tokens.length]);
     const txtEmb = (await txt.run({ token_ids: txtInput }))[txt.outputNames[0]];
-    
-    const txtCond = txtEmb.dims.length === 2 
+
+    const txtCond = txtEmb.dims.length === 2
         ? new ort.Tensor('float32', txtEmb.data, [1, txtEmb.dims[0], txtEmb.dims[1]])
         : txtEmb;
-    
+
     result = await main.run({ sequence: emptySeq, text_embeddings: txtCond, ...flowState });
+
+    // Update flowState from text conditioning
+    for (const outputName of main.outputNames) {
+        if (outputName.startsWith('out_state_')) {
+            const idx = parseInt(outputName.replace('out_state_', ''));
+            flowState[`state_${idx}`] = result[outputName];
+        }
+    }
     
     // AR generation
     const latents = [];
@@ -280,7 +305,15 @@ async function generate(text, voiceName) {
         
         latents.push(new Float32Array(x));
         current = new ort.Tensor('float32', x, [1, 1, 32]);
-        
+
+        // Update flowState from AR step
+        for (const outputName of main.outputNames) {
+            if (outputName.startsWith('out_state_')) {
+                const idx = parseInt(outputName.replace('out_state_', ''));
+                flowState[`state_${idx}`] = arResult[outputName];
+            }
+        }
+
         // Decode batch
         if (latents.length >= 12 || eos > -4) {
             const decodeLatents = new Float32Array(latents.length * 32);

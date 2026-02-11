@@ -281,44 +281,54 @@ function numberToWords(n) {
 async function runInference(tokenIds) {
     const { mimiEncoder, textConditioner, flowLmMain, flowLmFlow, mimiDecoder } = sessions;
     const ort = window.ort || self.ort;
-    
+
     // Initialize states
     const emptySeq = new ort.Tensor('float32', new Float32Array(0), [1, 0, 32]);
     const voiceTensor = new ort.Tensor('float32', currentVoiceEmbedding.data, currentVoiceEmbedding.shape);
-    
+
     // Voice conditioning
     self.postMessage({ type: 'status', data: { status: 'Processing voice...', state: 'generating' } });
-    
+
+    // Initialize flowState with zero tensors for all required state inputs
     let flowState = {};
+    for (const inputName of flowLmMain.inputNames) {
+        if (inputName.startsWith('state_')) {
+            const idx = parseInt(inputName.replace('state_', ''));
+            // Initialize with zero tensor - proper shape will be set after first output
+            flowState[inputName] = new ort.Tensor('float32', new Float32Array(1024), [1, 1, 1024]);
+        }
+    }
+
     const voiceCondInputs = { sequence: emptySeq, text_embeddings: voiceTensor, ...flowState };
     let condResult = await flowLmMain.run(voiceCondInputs);
     
-    // Update flow state
-    for (let i = 2; i < flowLmMain.outputNames.length; i++) {
+    // Update flow state from voice conditioning
+    for (let i = 0; i < flowLmMain.outputNames.length; i++) {
         const name = flowLmMain.outputNames[i];
         if (name.startsWith('out_state_')) {
             const idx = parseInt(name.replace('out_state_', ''));
             flowState[`state_${idx}`] = condResult[name];
         }
     }
-    
+
     // Text conditioning
     self.postMessage({ type: 'status', data: { status: 'Processing text...', state: 'generating' } });
-    
+
     const textInput = new ort.Tensor('int64', BigInt64Array.from(tokenIds.map(x => BigInt(x))), [1, tokenIds.length]);
     const textCondResult = await textConditioner.run({ token_ids: textInput });
     let textEmb = textCondResult[textConditioner.outputNames[0]];
-    
+
     if (textEmb.dims.length === 2) {
         textEmb = new ort.Tensor('float32', textEmb.data, [1, textEmb.dims[0], textEmb.dims[1]]);
     }
-    
+
     const emptyTextEmb = new ort.Tensor('float32', new Float32Array(0), [1, 0, 1024]);
-    
+
     const textCondInputs = { sequence: emptySeq, text_embeddings: textEmb, ...flowState };
     condResult = await flowLmMain.run(textCondInputs);
-    
-    for (let i = 2; i < flowLmMain.outputNames.length; i++) {
+
+    // Update flow state from text conditioning
+    for (let i = 0; i < flowLmMain.outputNames.length; i++) {
         const name = flowLmMain.outputNames[i];
         if (name.startsWith('out_state_')) {
             const idx = parseInt(name.replace('out_state_', ''));
@@ -373,8 +383,8 @@ async function runInference(tokenIds) {
         latents.push(new Float32Array(xData));
         currentLatent = new ort.Tensor('float32', xData, [1, 1, 32]);
         
-        // Update flow state
-        for (let i = 2; i < flowLmMain.outputNames.length; i++) {
+        // Update flow state from AR step
+        for (let i = 0; i < flowLmMain.outputNames.length; i++) {
             const name = flowLmMain.outputNames[i];
             if (name.startsWith('out_state_')) {
                 const idx = parseInt(name.replace('out_state_', ''));
