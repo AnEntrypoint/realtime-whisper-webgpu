@@ -396,105 +396,52 @@
     </div>
 
     <script type="module">
-        import { PocketTTSClient } from './tts/tts-client.js';
+        import { STT, TTS } from '/webtalk/sdk.js';
 
-        // === STT via existing Whisper worker ===
-        let sttWorker = null;
-        let sttReady = false;
-        let recorder = null;
+        const sttStatus = document.getElementById('stt-status');
+        const ttsStatus = document.getElementById('tts-status');
 
-        async function initSTT() {
-            const status = document.getElementById('stt-status');
-            status.textContent = 'Loading Whisper...';
-            status.className = 'status loading';
-            try {
-                sttWorker = new Worker('/assets/worker-BPxxCWVT.js');
-                sttWorker.onmessage = (e) => {
-                    const msg = e.data;
-                    switch (msg.status) {
-                        case 'loading':
-                            status.textContent = typeof msg.data === 'string' ? msg.data : 'Loading...';
-                            status.className = 'status loading';
-                            break;
-                        case 'ready':
-                            sttReady = true;
-                            status.textContent = 'Ready';
-                            status.className = 'status ready';
-                            document.getElementById('loading-screen').classList.add('hidden');
-                            break;
-                        case 'start':
-                            status.textContent = 'Transcribing...';
-                            status.className = 'status loading';
-                            break;
-                        case 'update':
-                            if (msg.output) {
-                                const text = Array.isArray(msg.output) ? msg.output.map(o => o.text || o).join('') : (msg.output.text || String(msg.output));
-                                document.getElementById('transcription-output').textContent = text;
-                            }
-                            break;
-                        case 'complete':
-                            if (msg.output) {
-                                const text = Array.isArray(msg.output) ? msg.output.map(o => o.text || o).join('') : (msg.output.text || String(msg.output));
-                                document.getElementById('transcription-output').textContent = text;
-                            }
-                            status.textContent = 'Ready';
-                            status.className = 'status ready';
-                            break;
-                    }
-                };
-                sttWorker.postMessage({ type: 'load' });
-            } catch (err) {
-                console.error('STT init failed:', err);
-                status.textContent = 'STT error: ' + err.message;
-                status.className = 'status error';
-                document.getElementById('loading-screen').classList.add('hidden');
+        // === STT ===
+        const stt = new STT({
+            language: 'en',
+            onTranscript: (text) => {
+                document.getElementById('transcription-output').textContent = text;
+            },
+            onPartial: (text) => {
+                document.getElementById('transcription-output').textContent = text;
+            },
+            onStatus: (state, msg) => {
+                sttStatus.textContent = msg;
+                const classMap = { loading: 'loading', ready: 'ready', recording: 'recording', transcribing: 'loading' };
+                sttStatus.className = 'status ' + (classMap[state] || 'ready');
+                if (state === 'ready') document.getElementById('loading-screen').classList.add('hidden');
             }
-        }
+        });
 
-        async function processAudio(blob) {
-            if (!sttWorker || !sttReady) return;
-            const status = document.getElementById('stt-status');
-            status.textContent = 'Transcribing...';
-            status.className = 'status loading';
-            try {
-                const arrayBuf = await blob.arrayBuffer();
-                const ctx = new AudioContext({ sampleRate: 16000 });
-                const decoded = await ctx.decodeAudioData(arrayBuf);
-                const audio = decoded.getChannelData(0);
-                ctx.close();
-                sttWorker.postMessage({ type: 'generate', data: { audio, language: 'en' } });
-            } catch (err) {
-                console.error('Transcription error:', err);
-                status.textContent = 'Error: ' + err.message;
-                status.className = 'status error';
-            }
-        }
+        stt.init().then(() => {
+            document.getElementById('loading-screen').classList.add('hidden');
+        }).catch(err => {
+            console.error('STT init failed:', err);
+            sttStatus.textContent = 'STT error: ' + err.message;
+            sttStatus.className = 'status error';
+            document.getElementById('loading-screen').classList.add('hidden');
+        });
 
         window.startRecording = async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const chunks = [];
-            recorder = new MediaRecorder(stream);
-            recorder.ondataavailable = e => chunks.push(e.data);
-            recorder.onstop = () => {
-                stream.getTracks().forEach(t => t.stop());
-                processAudio(new Blob(chunks, { type: 'audio/webm' }));
-            };
-            recorder.start();
+            await stt.startRecording();
             document.getElementById('record-btn').disabled = true;
             document.getElementById('stop-record-btn').disabled = false;
-            document.getElementById('stt-status').textContent = 'Recording...';
-            document.getElementById('stt-status').className = 'status recording';
         };
 
-        window.stopRecording = () => {
-            if (recorder && recorder.state !== 'inactive') recorder.stop();
+        window.stopRecording = async () => {
             document.getElementById('record-btn').disabled = false;
             document.getElementById('stop-record-btn').disabled = true;
+            await stt.stopRecording();
         };
 
         window.handleAudioUpload = (e) => {
             const file = e.target.files[0];
-            if (file) processAudio(file);
+            if (file) stt.transcribeBlob(file);
         };
 
         window.copyTranscription = () => {
@@ -506,69 +453,67 @@
         };
 
         // === TTS ===
-        try {
-            window.ttsClient = new PocketTTSClient({
-                onStatus: (status, state) => {
-                    const el = document.getElementById('tts-status');
-                    el.textContent = status;
-                    el.className = 'status ' + (state || 'ready');
-                },
-                onVoicesLoaded: (voices, defaultVoice) => {
-                    const select = document.getElementById('voice-select');
-                    select.innerHTML = '';
-                    voices.forEach(voice => {
-                        const option = document.createElement('option');
-                        option.value = voice;
-                        option.textContent = voice.charAt(0).toUpperCase() + voice.slice(1);
-                        if (voice === defaultVoice) option.selected = true;
-                        select.appendChild(option);
-                    });
-                    const custom = document.createElement('option');
-                    custom.value = 'custom';
-                    custom.textContent = 'Custom Voice';
-                    select.appendChild(custom);
-                },
-                onAudioChunk: () => {
-                    document.getElementById('audio-output-section').style.display = 'block';
-                },
-                onMetrics: (metrics) => {
-                    document.getElementById('tts-metrics').style.display = 'flex';
-                    if (metrics.rtfx) document.getElementById('rtfx').textContent = metrics.rtfx.toFixed(2) + 'x';
-                    if (metrics.ttfb) document.getElementById('ttfb').textContent = Math.round(metrics.ttfb);
-                },
-                onComplete: (audioUrl) => {
-                    if (audioUrl) document.getElementById('tts-audio').src = audioUrl;
-                    document.getElementById('generate-btn').disabled = false;
-                    document.getElementById('stop-tts-btn').disabled = true;
-                },
-                onReady: () => {
-                    document.getElementById('generate-btn').disabled = false;
-                }
-            });
-        } catch (err) {
-            console.error('TTS init failed:', err);
-            document.getElementById('tts-status').textContent = 'TTS error: ' + err.message;
-            document.getElementById('tts-status').className = 'status error';
-        }
+        const tts = new TTS({
+            onStatus: (status, state) => {
+                ttsStatus.textContent = status;
+                ttsStatus.className = 'status ' + (state || 'ready');
+            },
+            onVoicesLoaded: (voices, defaultVoice) => {
+                const select = document.getElementById('voice-select');
+                select.innerHTML = '';
+                voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice;
+                    option.textContent = voice.charAt(0).toUpperCase() + voice.slice(1);
+                    if (voice === defaultVoice) option.selected = true;
+                    select.appendChild(option);
+                });
+                const custom = document.createElement('option');
+                custom.value = 'custom';
+                custom.textContent = 'Custom Voice';
+                select.appendChild(custom);
+            },
+            onAudioChunk: () => {
+                document.getElementById('audio-output-section').style.display = 'block';
+            },
+            onMetrics: (metrics) => {
+                document.getElementById('tts-metrics').style.display = 'flex';
+                if (metrics.rtfx) document.getElementById('rtfx').textContent = metrics.rtfx.toFixed(2) + 'x';
+                if (metrics.ttfb) document.getElementById('ttfb').textContent = Math.round(metrics.ttfb);
+            },
+            onAudioReady: (audioUrl) => {
+                if (audioUrl) document.getElementById('tts-audio').src = audioUrl;
+                document.getElementById('generate-btn').disabled = false;
+                document.getElementById('stop-tts-btn').disabled = true;
+            }
+        });
 
-        window.generateSpeech = () => {
+        tts.init().then(() => {
+            document.getElementById('generate-btn').disabled = false;
+        }).catch(err => {
+            console.error('TTS init failed:', err);
+            ttsStatus.textContent = 'TTS error: ' + err.message;
+            ttsStatus.className = 'status error';
+        });
+
+        window.generateSpeech = async () => {
             const text = document.getElementById('tts-input').value.trim();
             if (!text) return;
             document.getElementById('generate-btn').disabled = true;
             document.getElementById('stop-tts-btn').disabled = false;
             document.getElementById('tts-metrics').style.display = 'none';
-            window.ttsClient.generate(text, document.getElementById('voice-select').value);
+            await tts.generate(text, document.getElementById('voice-select').value);
         };
 
         window.stopTTS = () => {
-            window.ttsClient?.stop();
+            tts.stop();
             document.getElementById('generate-btn').disabled = false;
             document.getElementById('stop-tts-btn').disabled = true;
         };
 
         window.handleVoiceUpload = (e) => {
             const file = e.target.files[0];
-            if (file) window.ttsClient?.uploadVoice(file);
+            if (file) tts.uploadVoice(file);
         };
 
         window.useTranscription = () => {
@@ -576,9 +521,7 @@
             if (t) document.getElementById('tts-input').value = t;
         };
 
-        window.downloadAudio = () => window.ttsClient?.downloadAudio();
-
-        initSTT();
+        window.downloadAudio = () => tts.downloadAudio();
     </script>
 </body>
 </html>

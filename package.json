@@ -1,18 +1,33 @@
 {
-  "name": "realtime-whisper-webgpu",
+  "name": "webtalk",
   "version": "1.0.0",
-  "description": "Real-time speech recognition in the browser using Whisper with WebGPU",
-  "main": "server.js",
+  "description": "Buildless STT (Whisper WebGPU) + TTS (Pocket TTS ONNX) SDK for Express/WebJSX projects",
+  "main": "middleware.js",
+  "type": "commonjs",
+  "exports": {
+    ".": "./middleware.js",
+    "./middleware": "./middleware.js",
+    "./middleware.js": "./middleware.js",
+    "./sdk.js": "./sdk.js",
+    "./sdk": "./sdk.js"
+  },
   "scripts": {
     "start": "node server.js",
     "serve": "node server.js",
-    "download-tts-models": "node download-tts-model.js"
+    "download-models": "node download-model.js && node download-tts-model.js"
   },
   "keywords": [
     "whisper",
     "webgpu",
     "speech-recognition",
-    "transformers.js"
+    "tts",
+    "text-to-speech",
+    "stt",
+    "speech-to-text",
+    "transformers.js",
+    "onnx",
+    "buildless",
+    "webjsx"
   ],
   "author": "",
   "license": "MIT",
