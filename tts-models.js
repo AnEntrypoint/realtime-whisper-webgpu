@@ -55,27 +55,16 @@ async function downloadTTSModels(config) {
     try {
       await downloadFile(url, destPath, 3);
       downloadedCount++;
-    } catch (err) {
-      // Continue on failure
-    }
+    } catch (err) {}
   }
 }
 
 async function downloadTTSWebFiles(config) {
   ensureDir(config.ttsDir);
-
   for (const file of TTS_WEB_FILES) {
     const destPath = path.join(config.ttsDir, file.name);
-
-    if (fs.existsSync(destPath)) {
-      continue;
-    }
-
-    try {
-      await downloadFile(file.url, destPath);
-    } catch (err) {
-      // Continue on failure
-    }
+    if (fs.existsSync(destPath)) continue;
+    try { await downloadFile(file.url, destPath); } catch (err) {}
   }
 }
 
@@ -105,4 +94,4 @@ async function ensureTTSModels(config) {
   return downloadPromise;
 }
 
-module.exports = { ensureTTSModels, checkTTSModelExists, downloadTTSModels, downloadTTSWebFiles };
+module.exports = { ensureTTSModels, checkTTSModelExists };

@@ -1,49 +1,26 @@
-const downloadLocks = new Map();
-const downloadPromises = new Map();
+const locks = new Map();
+const promises = new Map();
 
 function createDownloadLock(key) {
-  if (downloadLocks.has(key)) {
-    return downloadPromises.get(key);
-  }
-
+  if (locks.has(key)) return promises.get(key);
   const promise = new Promise((resolve, reject) => {
-    downloadLocks.set(key, { resolve, reject });
+    locks.set(key, { resolve, reject });
   });
-
-  downloadPromises.set(key, promise);
+  promises.set(key, promise);
   return promise;
 }
 
 function resolveDownloadLock(key, value) {
-  const lock = downloadLocks.get(key);
-  if (lock) {
-    lock.resolve(value);
-    downloadLocks.delete(key);
-    downloadPromises.delete(key);
-  }
+  const lock = locks.get(key);
+  if (lock) { lock.resolve(value); locks.delete(key); promises.delete(key); }
 }
 
 function rejectDownloadLock(key, error) {
-  const lock = downloadLocks.get(key);
-  if (lock) {
-    lock.reject(error);
-    downloadLocks.delete(key);
-    downloadPromises.delete(key);
-  }
+  const lock = locks.get(key);
+  if (lock) { lock.reject(error); locks.delete(key); promises.delete(key); }
 }
 
-function getDownloadPromise(key) {
-  return downloadPromises.get(key);
-}
+function getDownloadPromise(key) { return promises.get(key); }
+function isDownloading(key) { return promises.has(key); }
 
-function isDownloading(key) {
-  return downloadPromises.has(key);
-}
-
-module.exports = {
-  createDownloadLock,
-  resolveDownloadLock,
-  rejectDownloadLock,
-  getDownloadPromise,
-  isDownloading
-};
+module.exports = { createDownloadLock, resolveDownloadLock, rejectDownloadLock, getDownloadPromise, isDownloading };

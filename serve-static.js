@@ -42,4 +42,4 @@ function serveStatic(root, options = {}) {
   };
 }
 
-module.exports = { serveStatic, MIME_TYPES };
+module.exports = { serveStatic };

@@ -1,27 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const {
-  getInFlightCount,
-  setSwapping,
-  setDraining,
-  recordDrain,
-  recordSwap,
-  recordReload,
-  getCurrentHandlers,
-  setPendingHandlers,
-  setCurrentHandlers,
-  state
-} = require('./persistent-state');
+const { getInFlightCount, setDraining, recordDrain, recordReload } = require('./persistent-state');
 
 const DRAIN_TIMEOUT = 5000;
 const DRAIN_INTERVAL = 10;
 const MAX_DRAIN_INTERVAL = 100;
 const WATCH_DEBOUNCE = 300;
-
-let drainInterval = DRAIN_INTERVAL;
-let fileWatcher = null;
-let pendingReload = null;
-let reloadTimer = null;
 
 async function drain(timeout = DRAIN_TIMEOUT) {
   recordDrain();
@@ -41,62 +25,26 @@ async function drain(timeout = DRAIN_TIMEOUT) {
   setDraining(false);
 }
 
-async function swap() {
-  setSwapping(true);
-  recordSwap();
-  const pending = state.handlers.pending;
-  if (pending) {
-    setCurrentHandlers(pending);
-    setPendingHandlers(null);
-  }
-  setSwapping(false);
-}
-
-async function clearRequireCache(modules) {
+function clearRequireCache(modules) {
   modules.forEach(moduleName => {
     const modulePath = path.resolve(moduleName.endsWith('.js') ? moduleName : moduleName + '.js');
     delete require.cache[modulePath];
-    delete require.cache[require.resolve(modulePath)];
+    try { delete require.cache[require.resolve(modulePath)]; } catch (e) {}
   });
-}
-
-async function reloadModules(modulesToReload, reloadFn) {
-  try {
-    await drain();
-    const newHandlers = await reloadFn();
-    setPendingHandlers(newHandlers);
-    await swap();
-    recordReload();
-  } catch (error) {
-    recordReload(error);
-    throw error;
-  }
 }
 
 function startFileWatcher(watchedFiles, reloadCallback) {
-  if (fileWatcher) {
-    try {
-      fileWatcher.close();
-    } catch (e) {}
-  }
+  const watchers = [];
+  let reloadTimer = null;
+  let pending = false;
 
-  const watchedPaths = new Set();
-  watchedFiles.forEach(f => {
-    watchedPaths.add(path.resolve(f));
-  });
-
-  const onFileChange = (eventType, filename) => {
-    if (!filename) return;
-
-    const fullPath = path.resolve(filename);
-    if (!watchedPaths.has(fullPath)) return;
-
+  const onFileChange = () => {
     if (reloadTimer) clearTimeout(reloadTimer);
-    pendingReload = true;
+    pending = true;
 
     reloadTimer = setTimeout(async () => {
-      if (pendingReload) {
-        pendingReload = false;
+      if (pending) {
+        pending = false;
         try {
           await reloadCallback();
         } catch (error) {
@@ -108,35 +56,23 @@ function startFileWatcher(watchedFiles, reloadCallback) {
 
   try {
     watchedFiles.forEach(filePath => {
-      const dir = path.dirname(path.resolve(filePath));
-      const watcher = fs.watch(dir, { persistent: true }, (eventType, filename) => {
-        if (filename && filename === path.basename(path.resolve(filePath))) {
-          onFileChange(eventType, path.resolve(filePath));
-        }
+      const resolved = path.resolve(filePath);
+      const dir = path.dirname(resolved);
+      const basename = path.basename(resolved);
+      const watcher = fs.watch(dir, { persistent: false }, (eventType, filename) => {
+        if (filename === basename) onFileChange();
       });
-      if (!fileWatcher) fileWatcher = watcher;
+      watchers.push(watcher);
     });
   } catch (error) {
     recordReload(error);
   }
 
   return () => {
-    if (fileWatcher) {
-      try {
-        fileWatcher.close();
-      } catch (e) {}
-      fileWatcher = null;
-    }
+    watchers.forEach(w => { try { w.close(); } catch (e) {} });
+    watchers.length = 0;
     if (reloadTimer) clearTimeout(reloadTimer);
   };
 }
 
-module.exports = {
-  drain,
-  swap,
-  reloadModules,
-  clearRequireCache,
-  startFileWatcher,
-  DRAIN_TIMEOUT,
-  WATCH_DEBOUNCE
-};
+module.exports = { drain, clearRequireCache, startFileWatcher };

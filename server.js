@@ -1,14 +1,21 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const url = require('url');
 const { webtalk } = require('./middleware');
 const { initState, trackRequest, untrackRequest, getCurrentHandlers, setCurrentHandlers, getDebugState } = require('./persistent-state');
 const { startFileWatcher, drain, clearRequireCache } = require('./hot-reload');
 const { createDebugAPI } = require('./debug');
 
+const MIME_TYPES = {
+  '.html': 'text/html', '.js': 'application/javascript',
+  '.css': 'text/css', '.json': 'application/json', '.png': 'image/png'
+};
+
 const state = initState();
 const config = state.config;
 const debugAPI = createDebugAPI(state);
+let stopWatcher = null;
 
 process.webtalk = debugAPI;
 
@@ -30,12 +37,10 @@ function createApp() {
     res.status = (code) => { res.statusCode = code; return res; };
     res.sendFile = (filePath) => {
       const ext = path.extname(filePath).toLowerCase();
-      const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
-      res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
+      res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream');
       fs.createReadStream(filePath).pipe(res);
     };
 
-    const url = require('url');
     const parsed = url.parse(req.url);
     req.path = parsed.pathname;
 
@@ -124,55 +129,49 @@ function createApp() {
 
 const app = createApp();
 const { init } = webtalk(app);
-
 const server = http.createServer(app);
 
-async function reloadMiddleware() {
-  try {
-    await drain();
-    clearRequireCache(['./middleware.js', './config.js']);
-    delete require.cache[require.resolve('./middleware.js')];
-    delete require.cache[require.resolve('./config.js')];
+server.on('error', (err) => {
+  process.stderr.write(err.message + '\n');
+  process.exit(1);
+});
 
-    const { webtalk: reloadedWebtalk } = require('./middleware.js');
-    const newApp = createApp();
-    const { init: newInit } = reloadedWebtalk(newApp);
-    await newInit();
-    newApp.get('/api/debug', (req, res) => {
-      res.json(getDebugState());
-    });
-  } catch (error) {
-    throw error;
-  }
+async function reloadMiddleware() {
+  await drain();
+  clearRequireCache(['./middleware.js', './config.js']);
+  delete require.cache[require.resolve('./middleware.js')];
+  delete require.cache[require.resolve('./config.js')];
+  const { webtalk: reloadedWebtalk } = require('./middleware.js');
+  const newApp = createApp();
+  const { init: newInit } = reloadedWebtalk(newApp);
+  await newInit();
+  newApp.get('/api/debug', (req, res) => {
+    res.json(getDebugState());
+  });
+}
+
+function shutdown() {
+  if (stopWatcher) stopWatcher();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 2000).unref();
 }
 
 async function startServer() {
-  try {
-    await init();
-    app.get('/api/debug', (req, res) => {
-      res.json({
-        ...getDebugState(),
-        api: debugAPI.getDebugInfo()
-      });
-    });
-    server.listen(config.port, '0.0.0.0', () => {
-    });
-
-    const stopWatcher = startFileWatcher(
-      ['./middleware.js', './config.js'],
-      reloadMiddleware
-    );
-  } catch (err) {
-    process.exit(1);
-  }
+  await init();
+  app.get('/api/debug', (req, res) => {
+    res.json({ ...getDebugState(), api: debugAPI.getDebugInfo() });
+  });
+  server.listen(config.port, '0.0.0.0');
+  stopWatcher = startFileWatcher(
+    ['./middleware.js', './config.js'],
+    reloadMiddleware
+  );
 }
 
-startServer();
-
-process.on('SIGTERM', () => {
-  server.close(() => process.exit(0));
+startServer().catch((err) => {
+  process.stderr.write((err.message || 'Startup failed') + '\n');
+  process.exit(1);
 });
 
-process.on('SIGINT', () => {
-  server.close(() => process.exit(0));
-});
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

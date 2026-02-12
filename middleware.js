@@ -1,16 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const { initState, registerRoute } = require('./persistent-state');
-const { ensureModel, downloadFile, ensureDir } = require('./whisper-models');
+const { initState } = require('./persistent-state');
+const { ensureModel, downloadFile } = require('./whisper-models');
 const { ensureTTSModels, checkTTSModelExists } = require('./tts-models');
 const { patchWorker } = require('./worker-patch');
 const { serveStatic } = require('./serve-static');
 
 function webtalk(app, options = {}) {
-  const state = initState({
-    sdkDir: options.sdkDir || __dirname,
-    ...options
-  });
+  const state = initState({ sdkDir: options.sdkDir || __dirname, ...options });
   const config = state.config;
   const mountPath = options.path || config.mountPath;
 
@@ -19,15 +16,6 @@ function webtalk(app, options = {}) {
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     next();
-  });
-
-  app.get(mountPath + '/api/tts-status', async (req, res) => {
-    try {
-      const exists = await checkTTSModelExists(config);
-      res.json({ available: exists, modelDir: config.ttsModelsDir });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
   });
 
   app.get('/api/tts-status', async (req, res) => {
@@ -53,17 +41,17 @@ function webtalk(app, options = {}) {
     res.sendFile(path.join(config.sdkDir, 'app.html'));
   });
 
-  app.use(mountPath, serveStatic(config.sdkDir, { dotfiles: 'ignore', index: false, extensions: ['html', 'js', 'css', 'png', 'svg', 'ico'] }));
+  app.use(mountPath, serveStatic(config.sdkDir, {
+    dotfiles: 'ignore', index: false,
+    extensions: ['html', 'js', 'css', 'png', 'svg', 'ico']
+  }));
 
   const init = async () => {
     try { patchWorker(config); } catch (e) {}
-
     const ortWasmFile = path.join(config.assetsDir, 'ort-wasm-simd-threaded.jsep.wasm');
-
     if (!fs.existsSync(ortWasmFile)) {
       await downloadFile(config.onnxWasmUrl, ortWasmFile);
     }
-
     await ensureModel(config.defaultWhisperModel, config);
     await ensureTTSModels(config);
   };

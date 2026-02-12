@@ -1,50 +1,23 @@
 {
   "name": "webtalk",
   "version": "1.0.0",
-  "description": "Buildless STT (Whisper WebGPU) + TTS (Pocket TTS ONNX) SDK for Express/WebJSX projects",
+  "description": "Buildless STT (Whisper WebGPU) + TTS (Pocket TTS ONNX) SDK",
   "main": "middleware.js",
   "type": "commonjs",
   "exports": {
     ".": "./middleware.js",
     "./middleware": "./middleware.js",
-    "./middleware.js": "./middleware.js",
-    "./sdk.js": "./sdk.js",
     "./sdk": "./sdk.js",
     "./stt": "./stt.js",
-    "./stt.js": "./stt.js",
     "./tts": "./tts.js",
-    "./tts.js": "./tts.js",
     "./config": "./config.js",
-    "./config.js": "./config.js",
-    "./server": "./server.js",
-    "./server.js": "./server.js"
+    "./server": "./server.js"
   },
   "scripts": {
-    "start": "node server.js",
-    "serve": "node server.js"
+    "start": "node server.js"
   },
-  "keywords": [
-    "whisper",
-    "webgpu",
-    "speech-recognition",
-    "tts",
-    "text-to-speech",
-    "stt",
-    "speech-to-text",
-    "transformers.js",
-    "onnx",
-    "buildless",
-    "webjsx"
-  ],
-  "author": "Webtalk Contributors",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/yourusername/realtime-whisper-webgpu.git"
-  },
-  "homepage": "https://github.com/yourusername/realtime-whisper-webgpu",
   "engines": {
     "node": ">=14.0.0"
-  },
-  "devDependencies": {}
+  }
 }
