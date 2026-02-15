@@ -11,7 +11,10 @@
     "./stt": "./stt.js",
     "./tts": "./tts.js",
     "./config": "./config.js",
-    "./server": "./server.js"
+    "./server": "./server.js",
+    "./server-stt": "./server-stt.js",
+    "./server-tts": "./server-tts.js",
+    "./server-middleware": "./server-middleware.js"
   },
   "scripts": {
     "start": "node server.js"
@@ -27,6 +30,14 @@
   },
   "homepage": "https://github.com/AnEntrypoint/realtime-whisper-webgpu",
   "license": "MIT",
+  "peerDependencies": {
+    "@huggingface/transformers": ">=3.0.0",
+    "onnxruntime-node": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": { "optional": true },
+    "onnxruntime-node": { "optional": true }
+  },
   "engines": {
     "node": ">=14.0.0"
   }
