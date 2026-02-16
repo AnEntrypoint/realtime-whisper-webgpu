@@ -324,7 +324,11 @@ async function synthesizeAny(text, voiceId, extraDirs) {
   const voicePath = resolveVoicePath(voiceId, extraDirs);
   if (voicePath) {
     if (!hasHfToken()) {
-      throw new Error('Voice cloning requires HuggingFace authentication. Accept terms at https://huggingface.co/kyutai/pocket-tts then run: uvx hf auth login');
+      throw new Error(
+        'Voice cloning requires HuggingFace authentication. ' +
+        'The ungated model (kyutai/pocket-tts-without-voice-cloning) works without login for built-in voices. ' +
+        'For voice cloning, accept terms at https://huggingface.co/kyutai/pocket-tts then run: uvx hf auth login'
+      );
     }
     if (!isInstalled()) {
       const ok = await setup.ensureInstalled();
@@ -334,15 +338,18 @@ async function synthesizeAny(text, voiceId, extraDirs) {
     if (!started) throw new Error('Voice cloning requires pocket-tts but sidecar failed to start');
     return synthesizeViaPocket(text, voiceId, extraDirs);
   }
-  try {
-    return await edgeFallback.synthesize(text, voiceId);
-  } catch (edgeErr) {
-    if (isInstalled()) {
-      const started = await start(null);
-      if (started) return synthesizeViaPocket(text, voiceId, extraDirs);
-    }
-    throw edgeErr;
+  if (isInstalled() || await tryInstallPocket()) {
+    const started = await start(null);
+    if (started) return synthesizeViaPocket(text, voiceId, extraDirs);
   }
+  return edgeFallback.synthesize(text, voiceId);
+}
+
+async function tryInstallPocket() {
+  try {
+    const ok = await setup.ensureInstalled();
+    return ok;
+  } catch (_) { return false; }
 }
 
 async function synthesizeViaPocket(text, voiceId, extraDirs) {
