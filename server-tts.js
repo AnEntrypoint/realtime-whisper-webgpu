@@ -177,7 +177,14 @@ function spawnSidecar(voice, extraPaths) {
 function attachProc(proc) {
   state.process = proc; state.pid = proc.pid; state.status = 'starting';
   proc.stdout.on('data', d => { const l = d.toString().trim(); if (l) console.log('[POCKET-TTS]', l); });
-  proc.stderr.on('data', d => { const l = d.toString().trim(); if (l) console.error('[POCKET-TTS]', l); });
+  proc.stderr.on('data', d => {
+    const l = d.toString().trim();
+    if (!l) return;
+    console.error('[POCKET-TTS]', l);
+    if (l.includes('voice cloning') && l.includes('huggingface.co')) {
+      state.lastError = 'Voice cloning requires HuggingFace authentication. Run: uvx hf auth login (after accepting terms at https://huggingface.co/kyutai/pocket-tts)';
+    }
+  });
   proc.on('error', e => { state.lastError = e.message; });
 }
 
@@ -307,9 +314,35 @@ function resolveVoicePath(voiceId, extraDirs) {
 
 // --- Synthesis ---
 
+function hasHfToken() {
+  const tokenPath = path.join(os.homedir(), '.cache', 'huggingface', 'token');
+  return fs.existsSync(tokenPath);
+}
+
 async function synthesizeAny(text, voiceId, extraDirs) {
   if (state.healthy) return synthesizeViaPocket(text, voiceId, extraDirs);
-  return edgeFallback.synthesize(text, voiceId);
+  const voicePath = resolveVoicePath(voiceId, extraDirs);
+  if (voicePath) {
+    if (!hasHfToken()) {
+      throw new Error('Voice cloning requires HuggingFace authentication. Accept terms at https://huggingface.co/kyutai/pocket-tts then run: uvx hf auth login');
+    }
+    if (!isInstalled()) {
+      const ok = await setup.ensureInstalled();
+      if (!ok) throw new Error('Voice cloning requires pocket-tts but installation failed');
+    }
+    const started = await start(voicePath);
+    if (!started) throw new Error('Voice cloning requires pocket-tts but sidecar failed to start');
+    return synthesizeViaPocket(text, voiceId, extraDirs);
+  }
+  try {
+    return await edgeFallback.synthesize(text, voiceId);
+  } catch (edgeErr) {
+    if (isInstalled()) {
+      const started = await start(null);
+      if (started) return synthesizeViaPocket(text, voiceId, extraDirs);
+    }
+    throw edgeErr;
+  }
 }
 
 async function synthesizeViaPocket(text, voiceId, extraDirs) {
@@ -334,7 +367,11 @@ async function synthesizeViaPocket(text, voiceId, extraDirs) {
     }, res => {
       if (res.statusCode !== 200) {
         let e = ''; res.on('data', d => e += d);
-        res.on('end', () => reject(new Error(`pocket-tts HTTP ${res.statusCode}: ${e}`)));
+        res.on('end', async () => {
+          await new Promise(r => setTimeout(r, 500));
+          const detail = state.lastError || e || 'unknown error';
+          reject(new Error(`pocket-tts HTTP ${res.statusCode}: ${detail}`));
+        });
         return;
       }
       const chunks = []; res.on('data', d => chunks.push(d));
