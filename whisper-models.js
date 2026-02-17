@@ -106,7 +106,7 @@ async function downloadWhisperModel(modelName, config) {
   const modelDir = path.join(config.modelsDir, modelName);
   ensureDir(modelDir);
 
-  const baseUrl = `${config.whisperBaseUrl}${modelName}/resolve/main/`;
+  const baseUrl = config.whisperBaseUrl ? `${config.whisperBaseUrl}${modelName}/resolve/main/` : null;
 
   let downloadedCount = 0;
   let failedCount = 0;
@@ -120,6 +120,12 @@ async function downloadWhisperModel(modelName, config) {
       } else {
         continue;
       }
+    }
+
+    if (!baseUrl) {
+      console.log(`[WHISPER] Local model not found: ${destPath}`);
+      failedCount++;
+      continue;
     }
 
     const url = baseUrl + file;

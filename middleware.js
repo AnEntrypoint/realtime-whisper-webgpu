@@ -48,8 +48,9 @@ function webtalk(app, options = {}) {
 
   const init = async () => {
     try { patchWorker(config); } catch (e) {}
+    
     const ortWasmFile = path.join(config.assetsDir, 'ort-wasm-simd-threaded.jsep.wasm');
-    if (!fs.existsSync(ortWasmFile)) {
+    if (!fs.existsSync(ortWasmFile) && config.onnxWasmUrl) {
       await downloadFile(config.onnxWasmUrl, ortWasmFile);
     }
     await ensureModel(config.defaultWhisperModel, config);

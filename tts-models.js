@@ -46,6 +46,8 @@ async function checkTTSModelExists(config) {
 async function downloadTTSModels(config) {
   ensureDir(config.ttsModelsDir);
 
+  const baseUrl = config.ttsBaseUrl || null;
+
   let downloadedCount = 0;
 
   for (const file of TTS_FILES) {
@@ -59,7 +61,12 @@ async function downloadTTSModels(config) {
       }
     }
 
-    const url = config.ttsBaseUrl + file.name;
+    if (!baseUrl) {
+      console.log(`[TTS] Local model not found: ${destPath}`);
+      continue;
+    }
+
+    const url = baseUrl + file.name;
 
     try {
       await downloadFile(url, destPath, 3);

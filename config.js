@@ -2,6 +2,8 @@ const path = require('path');
 
 function createConfig(options = {}) {
   const sdkDir = options.sdkDir || __dirname;
+  
+  const sttttsmodelsDir = options.sttttsmodelsDir || path.join(sdkDir, '..', 'sttttsmodels');
 
   return {
     // Server configuration
@@ -9,15 +11,17 @@ function createConfig(options = {}) {
 
     // Path configuration
     sdkDir,
-    modelsDir: options.modelsDir || process.env.MODELS_DIR || path.join(sdkDir, 'models'),
-    ttsModelsDir: options.ttsModelsDir || process.env.TTS_MODELS_DIR || path.join(sdkDir, 'models', 'tts'),
+    modelsDir: options.modelsDir || process.env.MODELS_DIR || path.join(sttttsmodelsDir, 'models'),
+    ttsModelsDir: options.ttsModelsDir || process.env.TTS_MODELS_DIR || path.join(sttttsmodelsDir, 'models', 'tts'),
+    sttModelsDir: options.sttModelsDir || process.env.STT_MODELS_DIR || path.join(sttttsmodelsDir, 'models', 'stt'),
     assetsDir: options.assetsDir || path.join(sdkDir, 'assets'),
     ttsDir: options.ttsDir || path.join(sdkDir, 'tts'),
 
-    // Model configuration
+    // Model configuration - use local sttttsmodels by default
     defaultWhisperModel: options.defaultWhisperModel || process.env.WHISPER_MODEL || 'onnx-community/whisper-base',
-    whisperBaseUrl: options.whisperBaseUrl || process.env.WHISPER_BASE_URL || 'https://huggingface.co/',
-    ttsBaseUrl: options.ttsBaseUrl || process.env.TTS_BASE_URL || 'https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/main/onnx/',
+    whisperBaseUrl: options.whisperBaseUrl || process.env.WHISPER_BASE_URL || '',
+    ttsBaseUrl: options.ttsBaseUrl || process.env.TTS_BASE_URL || '',
+    speakerModelDir: options.speakerModelDir || path.join(sttttsmodelsDir, 'models', 'speaker'),
 
     // Worker configuration
     workerFile: options.workerFile || process.env.WORKER_FILE || 'worker-BPxxCWVT.js',
@@ -25,7 +29,7 @@ function createConfig(options = {}) {
     ttsWorkerFile: options.ttsWorkerFile || process.env.TTS_WORKER_FILE || 'inference-worker.js',
 
     // URL configuration
-    onnxWasmUrl: options.onnxWasmUrl || process.env.ONNX_WASM_URL || 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort-wasm-simd-threaded.jsep.wasm',
+    onnxWasmUrl: options.onnxWasmUrl || process.env.ONNX_WASM_URL || '',
 
     // Mount configuration
     mountPath: options.mountPath || process.env.MOUNT_PATH || '/webtalk',
