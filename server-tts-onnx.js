@@ -155,12 +155,11 @@ async function loadModels(modelDir) {
 
   // Load tokenizer
   const tokenizerBuffer = fs.readFileSync(modelPaths.tokenizer);
-  const tokenizerB64 = tokenizerBuffer.toString('base64');
 
-  // Import sentencepiece
-  const spModule = require('./tts/sentencepiece.js');
-  tokenizerProcessor = new spModule.SentencePieceProcessor();
-  await tokenizerProcessor.loadFromB64StringModel(tokenizerB64);
+  // Import sentencepiece for Node.js
+  const SentencePieceProcessor = require('@sctg/sentencepiece-js');
+  tokenizerProcessor = new SentencePieceProcessor();
+  await tokenizerProcessor.loadFromB64StringModel(tokenizerBuffer.toString('base64'));
 
   // Pre-allocate st tensors
   for (let lsd = 1; lsd <= MAX_LSD; lsd++) {
