@@ -156,8 +156,8 @@ async function loadModels(modelDir) {
   // Load tokenizer
   const tokenizerBuffer = fs.readFileSync(modelPaths.tokenizer);
 
-  // Import sentencepiece for Node.js
-  const SentencePieceProcessor = require('@sctg/sentencepiece-js');
+  // Import sentencepiece for Node.js (ESM module, use dynamic import)
+  const { SentencePieceProcessor } = await import('@sctg/sentencepiece-js');
   tokenizerProcessor = new SentencePieceProcessor();
   await tokenizerProcessor.loadFromB64StringModel(tokenizerBuffer.toString('base64'));
 
