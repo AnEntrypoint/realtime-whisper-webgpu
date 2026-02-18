@@ -17,6 +17,7 @@
     "./server": "./server.js",
     "./server-stt": "./server-stt.js",
     "./server-tts": "./server-tts.js",
+    "./server-tts-onnx": "./server-tts-onnx.js",
     "./server-middleware": "./server-middleware.js",
     "./pocket-tts-setup": "./pocket-tts-setup.js",
     "./edge-tts-fallback": "./edge-tts-fallback.js"
