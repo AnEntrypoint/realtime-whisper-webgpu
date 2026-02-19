@@ -1,5 +1,5 @@
 const serverSTT = require('./server-stt');
-const serverTTS = require('./server-tts-onnx');
+const serverTTS = require('./server-tts-service');
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -83,7 +83,7 @@ function createSpeechHandler(options) {
         }
         const status = serverTTS.getStatus();
         if (!status.ready) {
-          sendJSON(res, 503, { error: status.lastError || 'TTS not ready', retryable: false });
+          sendJSON(res, 503, { error: status.lastError || 'TTS loading', retryable: !status.lastError });
           return true;
         }
         const wavBuffer = await serverTTS.synthesize(text, voiceId, voiceDirs);
@@ -108,7 +108,7 @@ function createSpeechHandler(options) {
         }
         const status = serverTTS.getStatus();
         if (!status.ready) {
-          sendJSON(res, 503, { error: status.lastError || 'TTS not ready', retryable: false });
+          sendJSON(res, 503, { error: status.lastError || 'TTS loading', retryable: !status.lastError });
           return true;
         }
         res.writeHead(200, {
