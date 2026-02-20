@@ -21,7 +21,9 @@
     "./server-middleware": "./server-middleware.js",
     "./whisper-models": "./whisper-models.js",
     "./tts-models": "./tts-models.js",
-    "./download-lock": "./download-lock.js"
+    "./download-lock": "./download-lock.js",
+    "./ipfs-downloader": "./ipfs-downloader.js",
+    "./tts-utils": "./tts-utils.js"
   },
   "scripts": {
     "start": "node server.js"
