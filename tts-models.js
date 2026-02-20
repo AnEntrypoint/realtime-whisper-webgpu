@@ -16,14 +16,6 @@ const TTS_WEB_FILES = [
   { name: 'sentencepiece.js', url: 'https://cdn.jsdelivr.net/npm/@facebookresearch/fasttext@1.0.2/dist/fasttext.js', size: '4MB' }
 ];
 
-function getSttttsmodelsTtsDir() {
-  try {
-    const { ttsDir } = require('sttttsmodels');
-    if (fs.existsSync(ttsDir)) return ttsDir;
-  } catch (_) {}
-  return null;
-}
-
 async function checkTTSModelExists(config) {
   const dir = config.ttsModelsDir;
   if (!fs.existsSync(dir)) return false;
@@ -45,10 +37,7 @@ async function checkTTSModelExists(config) {
 
 async function downloadTTSModels(config) {
   ensureDir(config.ttsModelsDir);
-
   const baseUrl = config.ttsBaseUrl || null;
-
-  let downloadedCount = 0;
 
   for (const file of TTS_FILES) {
     const destPath = path.join(config.ttsModelsDir, file.name);
@@ -66,11 +55,8 @@ async function downloadTTSModels(config) {
       continue;
     }
 
-    const url = baseUrl + file.name;
-
     try {
-      await downloadFile(url, destPath, 3);
-      downloadedCount++;
+      await downloadFile(baseUrl + file.name, destPath, 3);
     } catch (err) {}
   }
 }
@@ -84,22 +70,6 @@ async function downloadTTSWebFiles(config) {
   }
 }
 
-function copyFromSttttsmodels(config) {
-  const srcDir = getSttttsmodelsTtsDir();
-  if (!srcDir) return false;
-  ensureDir(config.ttsModelsDir);
-  let copied = 0;
-  for (const file of TTS_FILES) {
-    const src = path.join(srcDir, file.name);
-    const dest = path.join(config.ttsModelsDir, file.name);
-    if (fs.existsSync(dest) && !isFileCorrupted(dest, file.minBytes)) continue;
-    if (!fs.existsSync(src)) return false;
-    fs.copyFileSync(src, dest);
-    copied++;
-  }
-  return true;
-}
-
 async function ensureTTSModels(config) {
   const lockKey = 'tts-models';
 
@@ -111,11 +81,8 @@ async function ensureTTSModels(config) {
     try {
       const exists = await checkTTSModelExists(config);
       if (!exists) {
-        if (!copyFromSttttsmodels(config)) {
-          await downloadTTSModels(config);
-        }
+        await downloadTTSModels(config);
       }
-
       await downloadTTSWebFiles(config);
       resolveDownloadLock(lockKey, true);
     } catch (err) {

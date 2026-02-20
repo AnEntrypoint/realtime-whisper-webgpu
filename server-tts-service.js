@@ -4,7 +4,9 @@ const ttsOnnx = require('./server-tts-onnx');
 const { encodeWav } = require('./server-stt');
 
 const SAMPLE_RATE = 24000;
-const DEFAULT_VOICES_DIR = path.join(require('os').homedir(), '.gmgui', 'voices');
+const os = require('os');
+const DEFAULT_VOICES_DIR = path.join(os.homedir(), '.gmgui', 'voices');
+const TTS_MODELS_DIR = path.join(os.homedir(), '.gmgui', 'models', 'tts');
 
 let modelsDir = null;
 let loadError = null;
@@ -12,12 +14,8 @@ let loadPromise = null;
 const voiceCache = {};
 
 function getTTSModelsDir() {
-  if (modelsDir) return modelsDir;
-  try {
-    const { ttsDir } = require('sttttsmodels');
-    if (fs.existsSync(ttsDir)) { modelsDir = ttsDir; return ttsDir; }
-  } catch (_) {}
-  return null;
+  if (!modelsDir) modelsDir = TTS_MODELS_DIR;
+  return modelsDir;
 }
 
 async function ensureLoaded() {

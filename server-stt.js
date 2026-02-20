@@ -21,17 +21,11 @@ async function loadTransformers() {
 }
 
 function whisperModelPath(options) {
-  // Check sttttsmodels npm package first
-  try {
-    const { sttDir } = require('sttttsmodels');
-    if (fs.existsSync(sttDir)) return sttDir;
-  } catch (_) {}
-
   // Check webtalk's own models directory
   const webtalkModels = path.join(__dirname, 'models', 'onnx-community', 'whisper-base');
   if (fs.existsSync(webtalkModels)) return webtalkModels;
 
-  // Check persistent cache
+  // Check persistent cache (IPFS download location)
   const cacheDir = (options && options.cacheDir) || PERSISTENT_CACHE;
   const cached = path.join(cacheDir, 'onnx-community', 'whisper-base');
   if (fs.existsSync(cached)) return cached;
