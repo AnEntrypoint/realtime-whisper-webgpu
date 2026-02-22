@@ -22,7 +22,6 @@
     "./whisper-models": "./whisper-models.js",
     "./tts-models": "./tts-models.js",
     "./download-lock": "./download-lock.js",
-    "./ipfs-downloader": "./ipfs-downloader.js",
     "./tts-utils": "./tts-utils.js",
     "./speech": "./speech.js"
   },

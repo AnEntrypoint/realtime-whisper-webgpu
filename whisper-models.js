@@ -2,9 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { createDownloadLock, resolveDownloadLock, rejectDownloadLock, getDownloadPromise, isDownloading } = require('./download-lock');
-const { downloadWithProgress, GATEWAYS } = require('./ipfs-downloader');
-
-const WHISPER_CID = 'bafybeidyw252ecy4vs46bbmezrtw325gl2ymdltosmzqgx4edjsc3fbofy';
+const { downloadWithProgress } = require('./download-manager');
 
 const WHISPER_REQUIRED_FILES = [
   'config.json',
@@ -107,7 +105,7 @@ async function downloadWhisperModel(modelName, config) {
   const modelDir = path.join(config.modelsDir, modelName);
   ensureDir(modelDir);
 
-  const cid = (config.whisperBaseUrl || '').match(/\/ipfs\/([^/]+)/)?.[1] || WHISPER_CID;
+  const cid = (config.whisperBaseUrl || '').match(/\/github\/([^/]+)/)?.[1] || WHISPER_CID;
   const hfBaseUrl = `https://huggingface.co/onnx-community/whisper-base/resolve/main/`;
 
   for (const file of WHISPER_REQUIRED_FILES) {
@@ -122,13 +120,12 @@ async function downloadWhisperModel(modelName, config) {
     }
 
     ensureDir(path.dirname(destPath));
-    const ipfsUrl = GATEWAYS[0] + cid + '/' + file;
-    console.log(`[WHISPER] Downloading ${file}...`);
+        console.log(`[WHISPER] Downloading ${file}...`);
     try {
-      await downloadWithProgress(ipfsUrl, destPath);
+      await downloadWithProgress(baseUrl + destPath);
       console.log(`[WHISPER] Downloaded ${file}`);
     } catch (err) {
-      console.warn(`[WHISPER] IPFS failed for ${file}, trying HuggingFace:`, err.message);
+      console.warn(`[WHISPER] github failed for ${file}, trying HuggingFace:`, err.message);
       try {
         await downloadFile(hfBaseUrl + file, destPath, 3);
         console.log(`[WHISPER] Downloaded ${file} from HuggingFace`);

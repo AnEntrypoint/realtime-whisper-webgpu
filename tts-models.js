@@ -2,9 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { createDownloadLock, resolveDownloadLock, rejectDownloadLock, getDownloadPromise, isDownloading } = require('./download-lock');
 const { ensureDir, isFileCorrupted } = require('./whisper-models');
-const { downloadWithProgress, GATEWAYS } = require('./ipfs-downloader');
-
-const TTS_CID = 'bafybeidyw252ecy4vs46bbmezrtw325gl2ymdltosmzqgx4edjsc3fbofy';
+const { downloadWithProgress } = require('./download-manager');
 
 const TTS_FILES = [
   { name: 'mimi_encoder.onnx', minBytes: 73 * 1024 * 1024 * 0.8 },
@@ -31,7 +29,7 @@ async function checkTTSModelExists(config) {
 
 async function downloadTTSModels(config) {
   ensureDir(config.ttsModelsDir);
-  const cid = (config.ttsBaseUrl || '').match(/\/ipfs\/([^/]+)/)?.[1] || TTS_CID;
+  const cid = (config.ttsBaseUrl || '').match(/\/github\/([^/]+)/)?.[1] || TTS_CID;
 
   for (const file of TTS_FILES) {
     const destPath = path.join(config.ttsModelsDir, file.name);
