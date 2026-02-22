@@ -23,8 +23,11 @@ async function loadTransformers() {
 function isModelComplete(dir) {
   const encoder = path.join(dir, 'onnx', 'encoder_model.onnx');
   const decoder = path.join(dir, 'onnx', 'decoder_model_merged.onnx');
-  return fs.existsSync(encoder) && fs.statSync(encoder).size > 40 * 1024 * 1024 &&
-         fs.existsSync(decoder) && fs.statSync(decoder).size > 100 * 1024 * 1024;
+  const decoderQ4 = path.join(dir, 'onnx', 'decoder_model_merged_q4.onnx');
+  const hasEncoder = fs.existsSync(encoder) && fs.statSync(encoder).size > 40 * 1024 * 1024;
+  const hasDecoder = (fs.existsSync(decoder) && fs.statSync(decoder).size > 100 * 1024 * 1024) ||
+                     (fs.existsSync(decoderQ4) && fs.statSync(decoderQ4).size > 100 * 1024 * 1024);
+  return hasEncoder && hasDecoder;
 }
 
 function whisperModelPath(options) {

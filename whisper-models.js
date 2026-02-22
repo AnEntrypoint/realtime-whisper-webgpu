@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { createDownloadLock, resolveDownloadLock, rejectDownloadLock, getDownloadPromise, isDownloading } = require('./download-lock');
+const { downloadWithProgress, GATEWAYS } = require('./ipfs-downloader');
+
+const WHISPER_CID = 'bafybeidyw252ecy4vs46bbmezrtw325gl2ymdltosmzqgx4edjsc3fbofy';
 
 const WHISPER_REQUIRED_FILES = [
   'config.json',
@@ -11,7 +14,6 @@ const WHISPER_REQUIRED_FILES = [
   'vocab.json',
   'merges.txt',
   'onnx/encoder_model.onnx',
-  'onnx/decoder_model_merged.onnx',
   'onnx/decoder_model_merged_q4.onnx',
 ];
 
@@ -105,14 +107,8 @@ async function downloadWhisperModel(modelName, config) {
   const modelDir = path.join(config.modelsDir, modelName);
   ensureDir(modelDir);
 
-  const baseUrl = config.whisperBaseUrl
-    ? (config.whisperBaseUrl.includes('huggingface.co')
-        ? `${config.whisperBaseUrl}${modelName}/resolve/main/`
-        : `${config.whisperBaseUrl}${modelName}/`)
-    : null;
-
-  let downloadedCount = 0;
-  let failedCount = 0;
+  const cid = (config.whisperBaseUrl || '').match(/\/ipfs\/([^/]+)/)?.[1] || WHISPER_CID;
+  const hfBaseUrl = `https://huggingface.co/onnx-community/whisper-base/resolve/main/`;
 
   for (const file of WHISPER_REQUIRED_FILES) {
     const destPath = path.join(modelDir, file);
@@ -125,20 +121,21 @@ async function downloadWhisperModel(modelName, config) {
       }
     }
 
-    if (!baseUrl) {
-      console.log(`[WHISPER] Local model not found: ${destPath}`);
-      failedCount++;
-      continue;
-    }
-
-    const url = baseUrl + file;
-
+    ensureDir(path.dirname(destPath));
+    const ipfsUrl = GATEWAYS[0] + cid + '/stt/' + modelName + '/' + file;
+    console.log(`[WHISPER] Downloading ${file}...`);
     try {
-      await downloadFile(url, destPath, 3);
-      downloadedCount++;
+      await downloadWithProgress(ipfsUrl, destPath);
+      console.log(`[WHISPER] Downloaded ${file}`);
     } catch (err) {
-      failedCount++;
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      console.warn(`[WHISPER] IPFS failed for ${file}, trying HuggingFace:`, err.message);
+      try {
+        await downloadFile(hfBaseUrl + file, destPath, 3);
+        console.log(`[WHISPER] Downloaded ${file} from HuggingFace`);
+      } catch (err2) {
+        console.warn(`[WHISPER] Failed to download ${file}:`, err2.message);
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      }
     }
   }
 }
