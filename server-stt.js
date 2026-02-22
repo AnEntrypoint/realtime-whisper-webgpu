@@ -20,15 +20,24 @@ async function loadTransformers() {
   return transformersModule;
 }
 
-function whisperModelPath(options) {
-  // Check webtalk's own models directory
-  const webtalkModels = path.join(__dirname, 'models', 'onnx-community', 'whisper-base');
-  if (fs.existsSync(webtalkModels)) return webtalkModels;
+function isModelComplete(dir) {
+  const encoder = path.join(dir, 'onnx', 'encoder_model.onnx');
+  const decoder = path.join(dir, 'onnx', 'decoder_model_merged.onnx');
+  return fs.existsSync(encoder) && fs.statSync(encoder).size > 40 * 1024 * 1024 &&
+         fs.existsSync(decoder) && fs.statSync(decoder).size > 100 * 1024 * 1024;
+}
 
-  // Check persistent cache (IPFS download location)
+function whisperModelPath(options) {
+  const webtalkModels = path.join(__dirname, 'models', 'onnx-community', 'whisper-base');
+  if (isModelComplete(webtalkModels)) return webtalkModels;
+
   const cacheDir = (options && options.cacheDir) || PERSISTENT_CACHE;
+
   const cached = path.join(cacheDir, 'onnx-community', 'whisper-base');
-  if (fs.existsSync(cached)) return cached;
+  if (isModelComplete(cached)) return cached;
+
+  const legacyPath = path.join(cacheDir, 'whisper');
+  if (isModelComplete(legacyPath)) return legacyPath;
 
   return 'onnx-community/whisper-base';
 }

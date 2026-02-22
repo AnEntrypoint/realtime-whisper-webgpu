@@ -60,8 +60,9 @@ function getVoices(voiceDirs) {
 
 async function getVoiceEmbedding(voiceId, voiceDirs) {
   const voices = scanVoiceDirs(voiceDirs);
-  const wavPath = voices[voiceId] || Object.values(voices)[0];
-  if (!wavPath) throw new Error('No voice files found');
+  const stripped = voiceId && voiceId.replace(/^custom_/, '');
+  const wavPath = voices[voiceId] || voices[stripped] || Object.values(voices)[0];
+  if (!wavPath) throw new Error('No voice files found. Place a .wav reference audio file in ' + DEFAULT_VOICES_DIR);
   if (voiceCache[wavPath]) return voiceCache[wavPath];
 
   const wavBuf = fs.readFileSync(wavPath);
