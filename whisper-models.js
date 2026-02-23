@@ -12,7 +12,7 @@ const WHISPER_REQUIRED_FILES = [
   'vocab.json',
   'merges.txt',
   'onnx/encoder_model.onnx',
-  'onnx/decoder_model_merged_q4.onnx',
+  'onnx/decoder_model_merged.onnx',
 ];
 
 function ensureDir(dir) {
@@ -86,8 +86,8 @@ async function checkWhisperModelExists(modelName, config) {
   if (!fs.existsSync(modelDir)) return false;
 
   const encoderPath = path.join(modelDir, 'onnx', 'encoder_model.onnx');
-  const decoderPath = path.join(modelDir, 'onnx', 'decoder_model_merged_q4.onnx');
-  const decoderFallback = path.join(modelDir, 'onnx', 'decoder_model_merged.onnx');
+  const decoderPath = path.join(modelDir, 'onnx', 'decoder_model_merged.onnx');
+  const decoderFallback = path.join(modelDir, 'onnx', 'decoder_model_merged_q4.onnx');
 
   const hasEncoder = fs.existsSync(encoderPath);
   const hasDecoder = fs.existsSync(decoderPath) || fs.existsSync(decoderFallback);
