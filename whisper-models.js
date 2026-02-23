@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { createDownloadLock, resolveDownloadLock, rejectDownloadLock, getDownloadPromise, isDownloading } = require('./download-lock');
-// Removed non-existent download-manager.js reference
 
 const WHISPER_REQUIRED_FILES = [
   'config.json',
@@ -15,169 +14,144 @@ const WHISPER_REQUIRED_FILES = [
   'onnx/decoder_model_merged.onnx',
 ];
 
+const GH_RAW_BASE = 'https://raw.githubusercontent.com/AnEntrypoint/models/main/stt/onnx-community/whisper-base/';
+const GH_LFS_BASE = 'https://media.githubusercontent.com/media/AnEntrypoint/models/main/stt/onnx-community/whisper-base/';
+const HF_BASE = 'https://huggingface.co/onnx-community/whisper-base/resolve/main/';
+
+const LFS_FILES = new Set(['onnx/encoder_model.onnx', 'onnx/decoder_model_merged.onnx']);
+
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-function downloadFile(url, dest, maxRetries = 3, attempt = 0) {
+function downloadFile(url, dest, maxRetries = 3, attempt = 0, onProgress) {
   return new Promise((resolve, reject) => {
     ensureDir(path.dirname(dest));
     const file = fs.createWriteStream(dest);
-    https.get(url, (response) => {
-      if (response.statusCode === 302 || response.statusCode === 301 || response.statusCode === 307 || response.statusCode === 308) {
+    const req = https.get(url, { headers: { 'User-Agent': 'agentgui' } }, (response) => {
+      if ([301, 302, 307, 308].includes(response.statusCode)) {
         file.close();
         if (fs.existsSync(dest)) fs.unlinkSync(dest);
-        downloadFile(response.headers.location, dest, maxRetries, attempt).then(resolve).catch(reject);
+        downloadFile(response.headers.location, dest, maxRetries, attempt, onProgress).then(resolve).catch(reject);
         return;
       }
       if (response.statusCode !== 200) {
         file.close();
         if (fs.existsSync(dest)) fs.unlinkSync(dest);
-        const error = new Error(`Failed to download: ${response.statusCode}`);
+        const error = new Error(`HTTP ${response.statusCode} for ${path.basename(dest)}`);
         if (attempt < maxRetries - 1) {
-          const delayMs = Math.pow(2, attempt) * 1000;
-          setTimeout(() => downloadFile(url, dest, maxRetries, attempt + 1).then(resolve).catch(reject), delayMs);
+          setTimeout(() => downloadFile(url, dest, maxRetries, attempt + 1, onProgress).then(resolve).catch(reject), Math.pow(2, attempt) * 1000);
         } else {
           reject(error);
         }
         return;
       }
-
+      const totalBytes = parseInt(response.headers['content-length'] || '0', 10);
       let downloaded = 0;
       response.on('data', (chunk) => {
         downloaded += chunk.length;
-        process.stdout.write(`\r  ↓ ${path.basename(dest)} ... ${(downloaded / 1024 / 1024).toFixed(2)}MB`);
+        if (onProgress) onProgress({ bytesDownloaded: downloaded, totalBytes });
       });
-
       response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        process.stdout.write(' ✓\n');
-        resolve();
-      });
-    }).on('error', (err) => {
+      file.on('finish', () => { file.close(); resolve(); });
+    });
+    req.on('error', (err) => {
+      file.close();
       if (fs.existsSync(dest)) fs.unlinkSync(dest);
       if (attempt < maxRetries - 1) {
-        const delayMs = Math.pow(2, attempt) * 1000;
-        setTimeout(() => downloadFile(url, dest, maxRetries, attempt + 1).then(resolve).catch(reject), delayMs);
+        setTimeout(() => downloadFile(url, dest, maxRetries, attempt + 1, onProgress).then(resolve).catch(reject), Math.pow(2, attempt) * 1000);
       } else {
         reject(err);
       }
     });
+    req.setTimeout(120000, () => { req.destroy(); });
   });
 }
 
 function isFileCorrupted(filePath, minSizeBytes = null) {
   try {
     const stats = fs.statSync(filePath);
-    if (minSizeBytes !== null && stats.size < minSizeBytes) {
-      return true;
-    }
+    if (minSizeBytes !== null && stats.size < minSizeBytes) return true;
     return false;
-  } catch (err) {
-    return true;
-  }
+  } catch { return true; }
 }
 
 async function checkWhisperModelExists(modelName, config) {
   const modelDir = path.join(config.modelsDir, modelName);
   if (!fs.existsSync(modelDir)) return false;
-
   const encoderPath = path.join(modelDir, 'onnx', 'encoder_model.onnx');
   const decoderPath = path.join(modelDir, 'onnx', 'decoder_model_merged.onnx');
   const decoderFallback = path.join(modelDir, 'onnx', 'decoder_model_merged_q4.onnx');
-
   const hasEncoder = fs.existsSync(encoderPath);
   const hasDecoder = fs.existsSync(decoderPath) || fs.existsSync(decoderFallback);
-
   if (!hasEncoder || !hasDecoder) return false;
-
-  const encoderValid = !isFileCorrupted(encoderPath, 40 * 1024 * 1024);
-  const decoderValid = isFileCorrupted(decoderPath, 100 * 1024 * 1024) === false ||
-                       isFileCorrupted(decoderFallback, 100 * 1024 * 1024) === false;
-
-  return encoderValid && decoderValid;
+  return !isFileCorrupted(encoderPath, 40 * 1024 * 1024) &&
+    (!isFileCorrupted(decoderPath, 100 * 1024 * 1024) || !isFileCorrupted(decoderFallback, 100 * 1024 * 1024));
 }
 
 async function downloadWhisperModel(modelName, config, onProgress) {
   const modelDir = path.join(config.modelsDir, modelName);
   ensureDir(modelDir);
-
   const totalFiles = WHISPER_REQUIRED_FILES.length;
   let completedFiles = 0;
 
-  const hfBaseUrl = `https://huggingface.co/onnx-community/whisper-base/resolve/main/`;
-
   for (const file of WHISPER_REQUIRED_FILES) {
     const destPath = path.join(modelDir, file);
-
-    if (fs.existsSync(destPath)) {
-      if (isFileCorrupted(destPath)) {
-        fs.unlinkSync(destPath);
-      } else {
-        continue;
-      }
+    if (fs.existsSync(destPath) && !isFileCorrupted(destPath)) {
+      completedFiles++;
+      continue;
     }
-
+    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
     ensureDir(path.dirname(destPath));
-        console.log(`[WHISPER] Downloading ${file}...`);
+    console.log(`[WHISPER] Downloading ${file}...`);
     if (onProgress) {
-      onProgress({
-        type: 'whisper',
-        file,
-        completedFiles,
-        totalFiles,
-        status: 'downloading'
-      });
+      onProgress({ type: 'whisper', file, completedFiles, totalFiles, status: 'downloading' });
     }
+    const ghUrl = LFS_FILES.has(file) ? GH_LFS_BASE + file : GH_RAW_BASE + file;
+    let downloaded = false;
     try {
-      await downloadWithProgress(baseUrl + destPath);
-      console.log(`[WHISPER] Downloaded ${file}`);
-    } catch (err) {
-      console.warn(`[WHISPER] github failed for ${file}, trying HuggingFace:`, err.message);
-      try {
-        await downloadFile(hfBaseUrl + file, destPath, 3);
-        completedFiles++;
-        console.log(`[WHISPER] Downloaded ${file} from HuggingFace`);
-        if (onProgress) {
-          onProgress({
-            type: 'whisper',
-            file,
-            completedFiles,
-            totalFiles,
-            status: 'completed'
-          });
-        }
-      } catch (err2) {
-        console.warn(`[WHISPER] Failed to download ${file}:`, err2.message);
+      await downloadFile(ghUrl, destPath, 2, 0, onProgress);
+      if (!isFileCorrupted(destPath)) {
+        downloaded = true;
+        console.log(`[WHISPER] Downloaded ${file} from GitHub`);
+      } else {
         if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
       }
+    } catch (err) {
+      console.warn(`[WHISPER] GitHub failed for ${file}:`, err.message);
+      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+    }
+    if (!downloaded) {
+      try {
+        await downloadFile(HF_BASE + file, destPath, 3, 0, onProgress);
+        console.log(`[WHISPER] Downloaded ${file} from HuggingFace`);
+      } catch (err2) {
+        console.warn(`[WHISPER] HuggingFace also failed for ${file}:`, err2.message);
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      }
+    }
+    completedFiles++;
+    if (onProgress) {
+      onProgress({ type: 'whisper', file, completedFiles, totalFiles, status: 'completed' });
     }
   }
 }
 
 async function ensureModel(modelName, config, onProgress) {
   const lockKey = `whisper-${modelName}`;
-
-  if (isDownloading(lockKey)) {
-    return getDownloadPromise(lockKey);
-  }
-
+  if (isDownloading(lockKey)) return getDownloadPromise(lockKey);
   const downloadPromise = (async () => {
     try {
       const exists = await checkWhisperModelExists(modelName, config);
-      if (!exists) {
-        await downloadWhisperModel(modelName, config, onProgress);
-      }
+      if (!exists) await downloadWhisperModel(modelName, config, onProgress);
       resolveDownloadLock(lockKey, true);
     } catch (err) {
       rejectDownloadLock(lockKey, err);
       throw err;
     }
   })();
-
   createDownloadLock(lockKey);
   return downloadPromise;
 }

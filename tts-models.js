@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 const { createDownloadLock, resolveDownloadLock, rejectDownloadLock, getDownloadPromise, isDownloading } = require('./download-lock');
 const { ensureDir, isFileCorrupted, downloadFile } = require('./whisper-models');
 
@@ -13,6 +12,7 @@ const TTS_FILES = [
   { name: 'tokenizer.model', minBytes: 59 * 1024 * 0.8 }
 ];
 
+const GH_LFS_BASE = 'https://media.githubusercontent.com/media/AnEntrypoint/models/main/tts/';
 const HF_TTS_BASE = 'https://huggingface.co/datasets/AnEntrypoint/sttttsmodels/resolve/main/tts/';
 
 async function checkTTSModelExists(config) {
@@ -31,89 +31,61 @@ async function checkTTSModelExists(config) {
 
 async function downloadTTSModels(config, onProgress) {
   ensureDir(config.ttsModelsDir);
-
   const totalFiles = TTS_FILES.length;
   let completedFiles = 0;
   let totalBytes = 0;
   let downloadedBytes = 0;
 
-  // Calculate total bytes
   for (const file of TTS_FILES) {
-    totalBytes += file.minBytes / 0.8; // Reverse the 0.8 multiplier to get actual size
+    totalBytes += file.minBytes / 0.8;
   }
 
   for (const file of TTS_FILES) {
     const destPath = path.join(config.ttsModelsDir, file.name);
-    if (fs.existsSync(destPath)) {
-      if (isFileCorrupted(destPath, file.minBytes)) {
-        fs.unlinkSync(destPath);
+    if (fs.existsSync(destPath) && !isFileCorrupted(destPath, file.minBytes)) {
+      completedFiles++;
+      downloadedBytes += file.minBytes / 0.8;
+      if (onProgress) {
+        onProgress({ type: 'tts', file: file.name, completedFiles, totalFiles, bytesDownloaded: downloadedBytes, totalBytes, status: 'skipped' });
+      }
+      continue;
+    }
+    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+    ensureDir(path.dirname(destPath));
+    console.log(`[TTS] Downloading ${file.name}...`);
+    if (onProgress) {
+      onProgress({ type: 'tts', file: file.name, completedFiles, totalFiles, bytesDownloaded: downloadedBytes, totalBytes, status: 'downloading' });
+    }
+    let downloaded = false;
+    try {
+      await downloadFile(GH_LFS_BASE + file.name, destPath, 2, 0, onProgress);
+      if (!isFileCorrupted(destPath, file.minBytes)) {
+        downloaded = true;
+        console.log(`[TTS] Downloaded ${file.name} from GitHub`);
       } else {
-        completedFiles++;
-        downloadedBytes += file.minBytes / 0.8;
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      }
+    } catch (err) {
+      console.warn(`[TTS] GitHub failed for ${file.name}:`, err.message);
+      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+    }
+    if (!downloaded) {
+      try {
+        await downloadFile(HF_TTS_BASE + file.name, destPath, 3, 0, onProgress);
+        console.log(`[TTS] Downloaded ${file.name} from HuggingFace`);
+      } catch (err2) {
+        console.warn(`[TTS] Failed to download ${file.name}:`, err2.message);
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
         if (onProgress) {
-          onProgress({
-            type: 'tts',
-            file: file.name,
-            completedFiles,
-            totalFiles,
-            bytesDownloaded: downloadedBytes,
-            totalBytes,
-            status: 'skipped'
-          });
+          onProgress({ type: 'tts', file: file.name, completedFiles, totalFiles, bytesDownloaded: downloadedBytes, totalBytes, status: 'error', error: err2.message });
         }
         continue;
       }
     }
-
-    ensureDir(path.dirname(destPath));
-    const url = HF_TTS_BASE + file.name;
-    console.log(`[TTS] Downloading ${file.name}...`);
-    
+    completedFiles++;
+    downloadedBytes += file.minBytes / 0.8;
     if (onProgress) {
-      onProgress({
-        type: 'tts',
-        file: file.name,
-        completedFiles,
-        totalFiles,
-        bytesDownloaded: downloadedBytes,
-        totalBytes,
-        status: 'downloading'
-      });
-    }
-
-    try {
-      await downloadFile(url, destPath, 3);
-      completedFiles++;
-      downloadedBytes += file.minBytes / 0.8;
-      console.log(`[TTS] Downloaded ${file.name}`);
-      
-      if (onProgress) {
-        onProgress({
-          type: 'tts',
-          file: file.name,
-          completedFiles,
-          totalFiles,
-          bytesDownloaded: downloadedBytes,
-          totalBytes,
-          status: 'completed'
-        });
-      }
-    } catch (err) {
-      console.warn(`[TTS] Failed to download ${file.name}:`, err.message);
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      
-      if (onProgress) {
-        onProgress({
-          type: 'tts',
-          file: file.name,
-          completedFiles,
-          totalFiles,
-          bytesDownloaded: downloadedBytes,
-          totalBytes,
-          status: 'error',
-          error: err.message
-        });
-      }
+      onProgress({ type: 'tts', file: file.name, completedFiles, totalFiles, bytesDownloaded: downloadedBytes, totalBytes, status: 'completed' });
     }
   }
 }
@@ -121,7 +93,6 @@ async function downloadTTSModels(config, onProgress) {
 async function ensureTTSModels(config, onProgress) {
   const lockKey = 'tts-models';
   if (isDownloading(lockKey)) return getDownloadPromise(lockKey);
-
   const downloadPromise = (async () => {
     try {
       const exists = await checkTTSModelExists(config);
@@ -132,7 +103,6 @@ async function ensureTTSModels(config, onProgress) {
       throw err;
     }
   })();
-
   createDownloadLock(lockKey);
   return downloadPromise;
 }
