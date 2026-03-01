@@ -92,6 +92,14 @@ function getSTT() {
   return serverSTT.getSTT(getSttOptions());
 }
 
+function resetSTTError() {
+  serverSTT.resetError();
+}
+
+function clearCorruptedSTTCache() {
+  return serverSTT.clearCorruptedCache(getSttOptions());
+}
+
 function synthesize(text, voiceId) {
   const voiceName = voiceId && voiceId.startsWith('custom_')
     ? voiceId.replace(/^custom_/, '')
@@ -134,6 +142,8 @@ module.exports = {
   ttsCacheKey,
   ttsCacheGet,
   splitSentences,
+  resetSTTError,
+  clearCorruptedSTTCache,
   getSttOptions,
   VOICE_DIRS,
 };

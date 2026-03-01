@@ -29,17 +29,19 @@ function ensureDir(dir) {
 function downloadFile(url, dest, maxRetries = 3, attempt = 0, onProgress) {
   return new Promise((resolve, reject) => {
     ensureDir(path.dirname(dest));
-    const file = fs.createWriteStream(dest);
+    const tmpDest = dest + '.tmp';
+    const file = fs.createWriteStream(tmpDest);
+    const cleanup = () => { try { if (fs.existsSync(tmpDest)) fs.unlinkSync(tmpDest); } catch {} };
     const req = https.get(url, { headers: { 'User-Agent': 'agentgui' } }, (response) => {
       if ([301, 302, 307, 308].includes(response.statusCode)) {
         file.close();
-        if (fs.existsSync(dest)) fs.unlinkSync(dest);
+        cleanup();
         downloadFile(response.headers.location, dest, maxRetries, attempt, onProgress).then(resolve).catch(reject);
         return;
       }
       if (response.statusCode !== 200) {
         file.close();
-        if (fs.existsSync(dest)) fs.unlinkSync(dest);
+        cleanup();
         const error = new Error(`HTTP ${response.statusCode} for ${path.basename(dest)}`);
         if (attempt < maxRetries - 1) {
           setTimeout(() => downloadFile(url, dest, maxRetries, attempt + 1, onProgress).then(resolve).catch(reject), Math.pow(2, attempt) * 1000);
@@ -55,11 +57,14 @@ function downloadFile(url, dest, maxRetries = 3, attempt = 0, onProgress) {
         if (onProgress) onProgress({ bytesDownloaded: downloaded, totalBytes });
       });
       response.pipe(file);
-      file.on('finish', () => { file.close(); resolve(); });
+      file.on('finish', () => {
+        file.close();
+        try { fs.renameSync(tmpDest, dest); resolve(); } catch (e) { cleanup(); reject(e); }
+      });
     });
     req.on('error', (err) => {
       file.close();
-      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+      cleanup();
       if (attempt < maxRetries - 1) {
         setTimeout(() => downloadFile(url, dest, maxRetries, attempt + 1, onProgress).then(resolve).catch(reject), Math.pow(2, attempt) * 1000);
       } else {
@@ -73,7 +78,11 @@ function downloadFile(url, dest, maxRetries = 3, attempt = 0, onProgress) {
 function isFileCorrupted(filePath, minSizeBytes = null) {
   try {
     const stats = fs.statSync(filePath);
+    if (stats.size === 0) return true;
     if (minSizeBytes !== null && stats.size < minSizeBytes) return true;
+    if (filePath.endsWith('.json')) {
+      try { JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return true; }
+    }
     return false;
   } catch { return true; }
 }
@@ -81,6 +90,10 @@ function isFileCorrupted(filePath, minSizeBytes = null) {
 async function checkWhisperModelExists(modelName, config) {
   const modelDir = path.join(config.modelsDir, modelName);
   if (!fs.existsSync(modelDir)) return false;
+  const requiredJson = ['config.json', 'tokenizer.json', 'preprocessor_config.json'];
+  for (const f of requiredJson) {
+    if (isFileCorrupted(path.join(modelDir, f))) return false;
+  }
   const encoderPath = path.join(modelDir, 'onnx', 'encoder_model.onnx');
   const decoderPath = path.join(modelDir, 'onnx', 'decoder_model_merged.onnx');
   const decoderFallback = path.join(modelDir, 'onnx', 'decoder_model_merged_q4.onnx');
